@@ -1,22 +1,14 @@
 #!/usr/bin/env python3
-"""Gera uma base compactada do SISVAN para contingência do NutriData.
-
-A fonte é o arquivo público anual disponibilizado pelo Ministério da Saúde.
-A API DEMAS é consultada diretamente pelo navegador; esta base permite que o
-dashboard continue utilizável quando a API estiver indisponível ou bloquear CORS.
-"""
+"""Baixa e gera a base SISVAN do Paraná em JSON para publicação estática."""
 from __future__ import annotations
 
 import csv
-import gzip
 import json
-import os
 import re
-import sys
 import tempfile
 import unicodedata
 import zipfile
-from datetime import datetime, timezone
+from itertools import chain
 from pathlib import Path
 
 import pandas as pd
@@ -26,9 +18,7 @@ SOURCE_URL = (
     "https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/SISVAN/"
     "estado_nutricional/sisvan_estado_nutricional_2023.zip"
 )
-OUTPUT_DIR = Path("public/data")
-OUTPUT_FILE = OUTPUT_DIR / "sisvan-pr.json.gz"
-METADATA_FILE = OUTPUT_DIR / "metadata.json"
+OUTPUT_FILE = Path("public/dados/sisvan.json")
 
 
 def normalize_column(value: object) -> str:
@@ -38,138 +28,96 @@ def normalize_column(value: object) -> str:
 
 
 def is_parana(value: object) -> bool:
-    normalized = str(value or "").strip().upper()
-    return normalized in {"PR", "PARANA", "PARANÁ", "41"}
+    return str(value or "").strip().upper() in {"PR", "PARANA", "PARANÁ", "41"}
 
 
 def main() -> None:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory() as temporary:
-        archive_path = Path(temporary) / "sisvan.zip"
-        print(f"Baixando base oficial: {SOURCE_URL}", flush=True)
+        zip_path = Path(temporary) / "sisvan.zip"
         with requests.get(SOURCE_URL, stream=True, timeout=(30, 300)) as response:
             response.raise_for_status()
-            with archive_path.open("wb") as output:
-                for chunk in response.iter_content(chunk_size=1024 * 1024):
+            with zip_path.open("wb") as output:
+                for chunk in response.iter_content(1024 * 1024):
                     if chunk:
                         output.write(chunk)
 
-        with zipfile.ZipFile(archive_path) as archive:
-            candidates = [
+        with zipfile.ZipFile(zip_path) as archive:
+            files = [
                 item for item in archive.infolist()
                 if not item.is_dir() and item.filename.lower().endswith((".csv", ".txt"))
             ]
-            if not candidates:
-                raise RuntimeError("O ZIP oficial não contém arquivo CSV/TXT.")
-            member = max(candidates, key=lambda item: item.file_size)
-            print(f"Processando {member.filename} ({member.file_size:,} bytes)", flush=True)
+            if not files:
+                raise RuntimeError("O ZIP oficial não contém CSV/TXT.")
 
-            with archive.open(member) as csv_file:
-                sample = csv_file.read(256 * 1024)
-                csv_file.seek(0)
+            with archive.open(max(files, key=lambda item: item.file_size)) as source:
+                sample = source.read(256 * 1024)
+                source.seek(0)
                 try:
-                    decoded_sample = sample.decode("utf-8-sig")
+                    sample.decode("utf-8-sig")
                     encoding = "utf-8-sig"
                 except UnicodeDecodeError:
-                    decoded_sample = sample.decode("latin-1")
                     encoding = "latin-1"
                 try:
-                    delimiter = csv.Sniffer().sniff(decoded_sample, delimiters=";,\t|").delimiter
+                    delimiter = csv.Sniffer().sniff(
+                        sample.decode(encoding), delimiters=";,\\t|"
+                    ).delimiter
                 except csv.Error:
                     delimiter = ";"
 
-                reader = pd.read_csv(
-                    csv_file,
-                    sep=delimiter,
-                    dtype=str,
-                    encoding=encoding,
-                    chunksize=50000,
-                    keep_default_na=False,
-                    on_bad_lines="error",
-                    low_memory=False,
+                chunks = pd.read_csv(
+                    source, sep=delimiter, dtype=str, encoding=encoding,
+                    chunksize=50000, keep_default_na=False, on_bad_lines="error"
                 )
-                first_chunk = next(reader, None)
-                if first_chunk is None:
+                first = next(chunks, None)
+                if first is None:
                     raise RuntimeError("O CSV oficial está vazio.")
-
-                first_chunk.columns = [normalize_column(c) for c in first_chunk.columns]
+                first.columns = [normalize_column(column) for column in first.columns]
                 uf_candidates = ("uf", "sg_uf", "sigla_uf", "estado", "sg_uf_residencia")
-                uf_column = next((name for name in uf_candidates if name in first_chunk.columns), None)
+                uf_column = next((name for name in uf_candidates if name in first.columns), None)
                 if not uf_column:
-                    raise RuntimeError(
-                        "Coluna de UF não encontrada. Colunas identificadas: "
-                        + ", ".join(first_chunk.columns[:50])
-                    )
+                    raise RuntimeError("Coluna de UF não encontrada no arquivo oficial.")
 
-                fd, temp_name = tempfile.mkstemp(
-                    prefix="sisvan-pr-", suffix=".json.gz", dir=OUTPUT_DIR
-                )
-                os.close(fd)
-                temp_output = Path(temp_name)
                 count = 0
-                try:
-                    with gzip.open(temp_output, "wt", encoding="utf-8", newline="") as output:
-                        output.write("[")
-                        first_record = True
+                with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", dir=OUTPUT_FILE.parent,
+                    prefix="sisvan-", suffix=".json.tmp", delete=False
+                ) as output:
+                    temp_path = Path(output.name)
+                    output.write("[")
+                    first_record = True
+                    for frame in chain([first], chunks):
+                        frame.columns = [normalize_column(column) for column in frame.columns]
+                        selected = frame[frame[uf_column].map(is_parana)]
+                        for record in selected.to_dict(orient="records"):
+                            clean = {
+                                key: (None if pd.isna(value) or value == "" else str(value).strip())
+                                for key, value in record.items()
+                            }
+                            if not first_record:
+                                output.write(",")
+                            json.dump(clean, output, ensure_ascii=False, separators=(",", ":"))
+                            first_record = False
+                            count += 1
+                    output.write("]")
 
-                        def write_chunk(frame: pd.DataFrame) -> None:
-                            nonlocal count, first_record
-                            frame.columns = [normalize_column(c) for c in frame.columns]
-                            selected = frame[frame[uf_column].map(is_parana)]
-                            for record in selected.to_dict(orient="records"):
-                                clean = {
-                                    key: (None if pd.isna(value) or value == "" else str(value).strip())
-                                    for key, value in record.items()
-                                }
-                                if not first_record:
-                                    output.write(",")
-                                json.dump(clean, output, ensure_ascii=False, separators=(",", ":"))
-                                first_record = False
-                                count += 1
+    try:
+        if count == 0:
+            raise RuntimeError("Nenhum registro do Paraná foi encontrado.")
+        with temp_path.open(encoding="utf-8") as check:
+            records = json.load(check)
+        if not isinstance(records, list) or len(records) != count or not all(
+            isinstance(record, dict) for record in records
+        ):
+            raise RuntimeError("A validação do JSON gerado falhou.")
+        temp_path.replace(OUTPUT_FILE)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
 
-                        write_chunk(first_chunk)
-                        for chunk in reader:
-                            write_chunk(chunk)
-                        output.write("]")
-
-                    if count == 0:
-                        raise RuntimeError("A filtragem não encontrou registros para o Paraná.")
-
-                    # Valida a integridade do gzip e do JSON antes de substituir a base publicada.
-                    with gzip.open(temp_output, "rt", encoding="utf-8") as check:
-                        parsed = json.load(check)
-                    if not isinstance(parsed, list) or len(parsed) != count:
-                        raise RuntimeError("A validação da base gerada falhou.")
-
-                    temp_output.replace(OUTPUT_FILE)
-                finally:
-                    if temp_output.exists():
-                        temp_output.unlink()
-
-    metadata = {
-        "source": SOURCE_URL,
-        "dataset": "SISVAN — Estado Nutricional",
-        "year": 2023,
-        "uf": "PR",
-        "records": count,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "format": "gzip-json",
-        "note": "Base anual pública de contingência; pode conter mais de um acompanhamento por pessoa.",
-    }
-    temp_metadata = METADATA_FILE.with_suffix(".json.tmp")
-    temp_metadata.write_text(
-        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    temp_metadata.replace(METADATA_FILE)
-    print(f"Concluído: {count:,} registros do Paraná.", flush=True)
-    print(f"Arquivo: {OUTPUT_FILE} ({OUTPUT_FILE.stat().st_size:,} bytes)", flush=True)
+    print(f"Base validada: {count} registros em {OUTPUT_FILE}.")
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as error:
-        print(f"ERRO ao atualizar SISVAN: {error}", file=sys.stderr)
-        raise
+    main()
