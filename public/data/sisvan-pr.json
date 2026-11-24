@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "source_year": 2023,
+  "generated_at": null,
+  "file_name": null,
+  "source": "SISVAN — Ministério da Saúde / Dados Abertos",
+  "summary": {
+    "total_records": 0,
+    "municipalities": 0,
+    "classified_records": 0,
+    "missing_sex_pct": null
+  },
+  "dimensions": {
+    "municipality": [],
+    "phase": [],
+    "sex": [],
+    "classification": []
+  },
+  "columns": {}
+}
