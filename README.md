@@ -1,9 +1,9 @@
-# NutriData — SISVAN Paraná
+# NutriData — SISVAN Paraná (Tempo Real & Larga Escala)
 
 [![Deploy NutriData to GitHub Pages](https://github.com/LuizOtr/NutriData/actions/workflows/deploy.yml/badge.svg)](https://github.com/LuizOtr/NutriData/actions/workflows/deploy.yml)
 [![GitHub Pages](https://img.shields.io/badge/Demo-GitHub%20Pages-success?style=flat&logo=github)](https://LuizOtr.github.io/NutriData/)
 
-Dashboard analítico de monitoramento do estado nutricional no estado do Paraná com base nos dados públicos abertos do **SISVAN** (Sistema de Vigilância Alimentar e Nutricional — Ministério da Saúde).
+Dashboard analítico de monitoramento do estado nutricional no estado do Paraná com base nos dados públicos abertos do **SISVAN** (Sistema de Vigilância Alimentar e Nutricional — Ministério da Saúde), com **suporte a larga escala (2.500+ registros)** e **monitoramento em tempo real**.
 
 ---
 
@@ -14,41 +14,34 @@ Acesse o painel publicado no GitHub Pages:
 
 ---
 
-## 🚀 Funcionalidades
+## 🚀 Novas Funcionalidades
 
-- **Indicadores Chave (KPIs):**
-  - Total de acompanhamentos registrados no Paraná.
-  - Quantidade de municípios identificados.
-  - Volume de classificações nutricionais válidas.
-  - Taxa de registros sem especificação de sexo.
-- **Visualizações Interativas:**
-  - Gráfico Donut de distribuição por Fase da Vida (Crianças, Adolescentes, Adultos, Idosos).
-  - Barras proporcionais de Classificação Nutricional (Eutrofia, Sobrepeso, Obesidade, etc.).
-  - Distribuição territorial dos municípios com maior volume de acompanhamentos.
-  - Caracterização demográfica por sexo.
-- **Pipeline de Dados Robusto:**
-  - Script Python (`scripts/update_sisvan.py`) para ingestão resiliente via API oficial de Dados Abertos do Ministério da Saúde.
-  - Base de dados versionada diretamente no repositório (`public/data/sisvan-pr.json`), permitindo carregamento estático veloz e confiável no GitHub Pages.
-- **CI/CD Automatizado:**
-  - Workflow GitHub Actions para build estático e publicação contínua no GitHub Pages.
-  - Workflow de atualização agendada ou sob demanda dos dados do SISVAN.
+- **Base de Dados Ampliada (2.500+ acompanhamentos):**
+  - Dados consolidados abrangendo dezenas de municípios paranaenses (Curitiba, Londrina, Maringá, Cascavel, Ponta Grossa, Toledo, Foz do Iguaçu, Guarapuava, etc.).
+  - Representatividade epidemiológica em todas as faixas etárias (bebês, crianças, adolescentes, adultos e idosos).
+- **Monitoramento em Tempo Real (Live Telemetry & Sync):**
+  - **Status da API do Ministério da Saúde:** indicador visual com latência e status de conectividade ao vivo.
+  - **Sincronização Manual:** botão para consultar e injetar novos registros em tempo real diretamente da API oficial.
+  - **Streaming Automático:** toggle para habilitar consulta periódica em tempo real (a cada 15 segundos), atualizando indicadores e gráficos instantaneamente sem recarregar a página.
+- **Filtros Interativos Dinâmicos:**
+  - Filtragem em tempo real por **Fase da Vida**, **Classificação Nutricional**, **Sexo** e **Busca textual por Município**.
+  - Recálculo reativo instantâneo de todos os gráficos (Donut, Barras e KPIs).
+- **Explorador Detalhado de Registros:**
+  - Tabela completa de acompanhamentos individuais exibindo: ID, Município, Fase, Idade, Sexo, Peso, Altura, IMC, Classificação com tags semânticas e Data.
+  - Paginação interativa rápida.
 
 ---
 
 ## 🛠️ Tecnologias Utilizadas
 
 - **Frontend:** React 19, Vite, CSS moderno responsivo.
-- **Servidor Local (opcional):** Node.js / Express (`server.cjs`).
-- **Pipeline de Dados:** Python 3 (padrão `urllib` / `json` / `collections`).
+- **Servidor Local (Proxy API):** Node.js / Express (`server.cjs`) com suporte a CORS.
+- **Pipeline de Dados:** Python 3 (`scripts/update_sisvan.py`) para ingestão e enriquecimento de base.
 - **Hospedagem & CI/CD:** GitHub Pages + GitHub Actions.
 
 ---
 
 ## 💻 Como Executar Localmente
-
-### Pré-requisitos
-- Node.js 18+ (recomendado 20+)
-- Python 3.10+ (opcional, apenas para atualizar a base de dados)
 
 ### 1. Clonar o repositório
 ```bash
@@ -61,29 +54,33 @@ cd NutriData
 npm install
 ```
 
-### 3. Rodar em ambiente de desenvolvimento
+### 3. Rodar em desenvolvimento (Vite)
 ```bash
 npm run dev
 ```
-O Vite iniciará o servidor local em `http://127.0.0.1:5173`.
+Acesse `http://127.0.0.1:5173`.
 
-### 4. Executar com o servidor Express (produção local)
+### 4. Executar com servidor Express (Produção com Proxy da API)
 ```bash
 npm start
 ```
-Acesse `http://localhost:3000`.
+Acesse `http://localhost:3000`. Nesse modo, as requisições em tempo real passam pelo proxy local `/api/sisvan`, consultando a API do Ministério da Saúde diretamente sem restrições de CORS.
 
 ---
 
-## 🔄 Como Atualizar a Base de Dados
+## 🔄 Como Atualizar ou Expandir a Base de Dados
 
-Para consultar novamente a API oficial do Ministério da Saúde e gerar uma nova versão da base agregada do Paraná:
+Para gerar uma base ainda maior ou atualizar os dados da API:
 
 ```bash
-python scripts/update_sisvan.py --target 500
+# Gera base de 2.500 registros
+python scripts/update_sisvan.py --target 2500
+
+# Ou gere uma base de 5.000 registros
+python scripts/update_sisvan.py --target 5000
 ```
 
-Os novos dados serão validados e gravados em `public/data/sisvan-pr.json`.
+Os dados são salvos em `public/data/sisvan-pr.json`.
 
 ---
 
