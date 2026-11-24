@@ -144,6 +144,33 @@ jobs:
         with:
           path: dist
 
+      - name: Wait for Pages artifact metadata
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const attempts = 12;
+            for (let attempt = 1; attempt <= attempts; attempt++) {
+              const response = await github.rest.actions.listWorkflowRunArtifacts({
+                owner,
+                repo,
+                run_id: context.runId,
+                per_page: 100
+              });
+              const artifact = response.data.artifacts.find(item =>
+                item.name === "github-pages" && !item.expired
+              );
+              if (artifact) {
+                core.info(`Artefato github-pages disponível: ${artifact.id} (${artifact.size_in_bytes} bytes).`);
+                return;
+              }
+              core.info(`Artefato ainda não visível na API (tentativa ${attempt}/${attempts}); aguardando 5 segundos.`);
+              if (attempt < attempts) {
+                await new Promise(resolve => setTimeout(resolve, 5000));
+              }
+            }
+            core.setFailed("O artefato github-pages não apareceu na API do GitHub após 60 segundos.");
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
