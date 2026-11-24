@@ -2,17 +2,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 const fields = {
   municipality: ["municipio", "nome_municipio", "no_municipio"],
-  uf: ["uf", "sigla_uf"],
+  uf: ["uf", "sigla_uf", "sg_uf"],
   age: ["idade", "nu_idade", "idade_anos"],
-  phase: ["fase_vida", "fase_da_vida", "descricao_fase_vida"],
+  phase: ["fase_vida", "fase_da_vida", "descricao_fase_vida", "ds_fase_vida"],
   sex: ["sexo", "ds_sexo"],
-  date: ["data_acompanhamento", "competencia", "data"],
+  date: ["data_acompanhamento", "competencia", "data", "dt_acompanhamento"],
   imc: ["imc", "valor_imc"],
   classification: [
     "codigo_estado_nutricional_adulto", "adulto_imc",
     "crianca_imc_x_idade", "adolescente_imc_x_idade",
     "codigo_estado_nutricional_idoso", "estado_nutricional",
-    "classificacao_nutricional"
+    "classificacao_nutricional", "ds_estado_nutricional", "estado_nutricional_adulto", "imc_adulto"
   ]
 };
 
@@ -257,9 +257,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    fetch("/api/health").then(response => response.json()).then(data => {
-      if (data.status === "ok") setStatus({ text: "Servidor conectado", type: "ok" });
-    }).catch(() => setStatus({ text: "Servidor indisponível", type: "error" }));
+    setStatus({ text: "Base pública disponível", type: "neutral" });
     return () => clearTimeout(toastTimer.current);
   }, []);
 
@@ -281,22 +279,23 @@ export default function App() {
     const requestLimit = overrides.limit ?? limit;
     const params = new URLSearchParams({ uf: requestUf, limit: String(requestLimit), offset: String(pageOffset) });
     try {
-      const response = await fetch(`/api/sisvan?${params.toString()}`);
-      const raw = await response.text();
-      if (!response.ok) {
-        let detail = raw;
-        try { detail = JSON.stringify(JSON.parse(raw)); } catch {}
-        throw new Error(`HTTP ${response.status}: ${detail.slice(0, 350)}`);
+      const response = await fetch(`${import.meta.env.BASE_URL}data/sisvan-pr.json.gz`);
+      if (!response.ok) throw new Error(`Não foi possível carregar a base pública (HTTP ${response.status}).`);
+      if (typeof DecompressionStream === "undefined") {
+        throw new Error("Este navegador não oferece suporte à descompressão gzip necessária para a base SISVAN.");
       }
-
-      let payload;
-      try { payload = JSON.parse(raw); }
-      catch { throw new Error(`A API não retornou JSON válido: ${raw.slice(0, 180)}`); }
-
-      const pageRecords = extractRecords(payload);
-      if (!pageRecords.length && pageOffset === 0) {
-        console.warn("Formato de resposta recebido:", payload);
-        throw new Error("A resposta não contém uma lista de registros reconhecida. Confira o formato no Console.");
+      const compressed = await response.arrayBuffer();
+      const decompressed = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("gzip"));
+      const payload = JSON.parse(await new Response(decompressed).text());
+      const allRecords = extractRecords(payload);
+      if (!allRecords.length) {
+        throw new Error("A base publicada não contém registros. Execute novamente a atualização do SISVAN no GitHub Actions.");
+      }
+      const pageRecords = allRecords.slice(pageOffset, pageOffset + requestLimit);
+      if (pageOffset >= allRecords.length) {
+        setHasMore(false);
+        setStatus({ text: "Base carregada", type: "ok" });
+        return;
       }
 
       const keys = new Set(existing.map(row => JSON.stringify(row)));
@@ -310,10 +309,10 @@ export default function App() {
       setRecords(updatedRecords);
       setOffset(pageOffset + pageRecords.length);
       setHasMore(pageRecords.length === requestLimit);
-      setStatus({ text: "API conectada", type: "ok" });
+      setStatus({ text: "Dados oficiais carregados", type: "ok" });
       setNotice({
         title: "Consulta concluída",
-        message: `${pageRecords.length} registros recebidos nesta página. ${updatedRecords.length} registros únicos carregados nesta sessão. A paginação continua disponível quando a API retornar uma página completa.`
+        message: `${pageRecords.length} registros exibidos nesta página. ${updatedRecords.length} registros carregados nesta sessão, de uma base oficial do SISVAN filtrada para o Paraná.`
       });
       showToast(`${pageRecords.length} registros recebidos.`);
     } catch (error) {
