@@ -9,7 +9,6 @@ on:
 
 permissions:
   contents: read
-  actions: write
   pages: write
   id-token: write
 
@@ -24,48 +23,11 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Cancel stale deployment runs
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const activeStatuses = new Set(["queued", "in_progress", "pending", "waiting", "requested"]);
-            const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {
-              owner, repo, per_page: 100
-            });
-            const stale = runs.filter(run =>
-              run.id !== context.runId &&
-              activeStatuses.has(run.status) &&
-              (run.name.includes("NutriData") || run.name === "pages build and deployment")
-            );
-            for (const run of stale) {
-              core.info(`Cancelando execução antiga ${run.id}: ${run.name}`);
-              await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: run.id });
-            }
-
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
-
-      - name: Restore SISVAN dataset cache
-        id: sisvan-cache
-        uses: actions/cache@v4
-        with:
-          path: .cache/sisvan
-          key: sisvan-pr-v2-${{ github.run_id }}
-          restore-keys: |
-            sisvan-pr-v2-
-
-      - name: Check cached SISVAN dataset
-        id: cache-check
-        run: |
-          if [ -s .cache/sisvan/sisvan-pr.json.gz ] && [ -s .cache/sisvan/metadata.json ]; then
-            echo "has_cache=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_cache=false" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -73,58 +35,25 @@ jobs:
           python-version: "3.12"
 
       - name: Install SISVAN pipeline dependencies
-        if: github.event_name != 'push' || steps.cache-check.outputs.has_cache != 'true'
         run: python -m pip install --disable-pip-version-check pandas requests
 
-      - name: Refresh official SISVAN dataset
-        if: github.event_name != 'push' || steps.cache-check.outputs.has_cache != 'true'
-        continue-on-error: true
-        timeout-minutes: 20
+      - name: Download and process SISVAN
         run: python scripts/update_sisvan.py
 
-      - name: Restore cached data or prepare safe fallback
-        if: always()
+      - name: Validate published dataset
         run: |
-          mkdir -p public/data
-          if [ ! -s public/data/sisvan-pr.json.gz ] && [ -s .cache/sisvan/sisvan-pr.json.gz ]; then
-            cp .cache/sisvan/sisvan-pr.json.gz public/data/sisvan-pr.json.gz
-            cp .cache/sisvan/metadata.json public/data/metadata.json
-            echo "Dataset restaurado do cache."
-          fi
           python - <<'PY'
-          import gzip
           import json
-          import shutil
           from pathlib import Path
 
-          data = Path("public/data/sisvan-pr.json.gz")
-          metadata = Path("public/data/metadata.json")
-          valid = False
-          try:
-              with gzip.open(data, "rt", encoding="utf-8") as source:
-                  records = json.load(source)
-              valid = isinstance(records, list) and len(records) > 0
-              if valid:
-                  with metadata.open(encoding="utf-8") as source:
-                      json.load(source)
-          except Exception as error:
-              print(f"Base não validada: {error}")
-
-          if valid:
-              Path(".cache/sisvan").mkdir(parents=True, exist_ok=True)
-              shutil.copy2(data, ".cache/sisvan/sisvan-pr.json.gz")
-              shutil.copy2(metadata, ".cache/sisvan/metadata.json")
-              print(f"Base validada: {len(records)} registros.")
-          else:
-              with gzip.open(data, "wt", encoding="utf-8") as output:
-                  json.dump([], output)
-              metadata.write_text(json.dumps({
-                  "source": "Ministério da Saúde — SISVAN",
-                  "uf": "PR",
-                  "records": 0,
-                  "status": "Base de contingência ainda não sincronizada."
-              }, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
-              print("Publicação preservada; dashboard exibirá aviso de dados indisponíveis.")
+          path = Path("public/dados/sisvan.json")
+          if not path.is_file() or path.stat().st_size == 0:
+              raise SystemExit("Arquivo public/dados/sisvan.json ausente ou vazio.")
+          with path.open(encoding="utf-8") as source:
+              records = json.load(source)
+          if not isinstance(records, list) or not records or not all(isinstance(row, dict) for row in records):
+              raise SystemExit("JSON inválido ou sem registros.")
+          print(f"JSON válido: {len(records)} registros.")
           PY
 
       - name: Setup Node.js
@@ -139,37 +68,13 @@ jobs:
       - name: Build React dashboard
         run: npm run build
 
+      - name: Verify dataset in build output
+        run: test -s dist/dados/sisvan.json
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
-
-      - name: Wait for Pages artifact metadata
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const attempts = 12;
-            for (let attempt = 1; attempt <= attempts; attempt++) {
-              const response = await github.rest.actions.listWorkflowRunArtifacts({
-                owner,
-                repo,
-                run_id: context.runId,
-                per_page: 100
-              });
-              const artifact = response.data.artifacts.find(item =>
-                item.name === "github-pages" && !item.expired
-              );
-              if (artifact) {
-                core.info(`Artefato github-pages disponível: ${artifact.id} (${artifact.size_in_bytes} bytes).`);
-                return;
-              }
-              core.info(`Artefato ainda não visível na API (tentativa ${attempt}/${attempts}); aguardando 5 segundos.`);
-              if (attempt < attempts) {
-                await new Promise(resolve => setTimeout(resolve, 5000));
-              }
-            }
-            core.setFailed("O artefato github-pages não apareceu na API do GitHub após 60 segundos.");
 
       - name: Deploy to GitHub Pages
         id: deployment
