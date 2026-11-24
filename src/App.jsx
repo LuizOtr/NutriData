@@ -331,7 +331,11 @@ export default function App() {
     }
   }
 
-  useEffect(() => {\n    fetchPage(true);\n  }, []);\n\n  const filteredRecords = useMemo(() => records.filter(row => !normalizeText(municipalityFilter)
+  useEffect(() => {
+    fetchPage(true);
+  }, []);
+
+  const filteredRecords = useMemo(() => records.filter(row => !normalizeText(municipalityFilter)
     || normalizeText(getValue(row, fields.municipality)).includes(normalizeText(municipalityFilter))), [records, municipalityFilter]);
   const municipalities = new Set(filteredRecords.map(row => getValue(row, fields.municipality)).filter(Boolean));
   const adults = filteredRecords.filter(row => normalizeText(getValue(row, fields.phase)).includes("adult")).length;
@@ -363,7 +367,7 @@ export default function App() {
               <label>UF<select value={uf} onChange={event => { const value = event.target.value; setUf(value); fetchPage(true, { uf: value }); }}><option value="PR">Paraná (PR)</option></select></label>
               <label>Registros por consulta<select value={limit} onChange={event => { const value = Number(event.target.value); setLimit(value); fetchPage(true, { limit: value }); }}><option value="20">20</option><option value="10">10</option><option value="5">5</option></select></label>
               <label>Município<input type="search" placeholder="Filtrar município" value={municipalityFilter} onChange={event => setMunicipalityFilter(event.target.value)} /></label>
-              <button className="button dark" onClick={() => fetchPage(true)} disabled={loading}>{loading ? "Consultando..." : "Consultar API"}</button>
+              <button className="button dark" onClick={() => fetchPage(true)} disabled={loading}>{loading ? "Carregando..." : "Consultar API"}</button>
             </div>
           </section>
 
