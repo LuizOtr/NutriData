@@ -362,7 +362,7 @@ export default function App() {
           </header>
 
           <section className="intro" id="overview">
-            <div><h2>Estado nutricional da população</h2><p>Acompanhamentos do SISVAN para o Paraná.</p></div>
+            <div><h2>Estado nutricional da população</h2><p>Acompanhamentos de 2023 do SISVAN para o Paraná. Base pública atualizada automaticamente.</p></div>
             <div className="filters">
               <label>UF<select value={uf} onChange={event => { const value = event.target.value; setUf(value); fetchPage(true, { uf: value }); }}><option value="PR">Paraná (PR)</option></select></label>
               <label>Registros por consulta<select value={limit} onChange={event => { const value = Number(event.target.value); setLimit(value); fetchPage(true, { limit: value }); }}><option value="20">20</option><option value="10">10</option><option value="5">5</option></select></label>
