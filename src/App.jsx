@@ -12,7 +12,7 @@ const fields = {
     "codigo_estado_nutricional_adulto", "adulto_imc",
     "crianca_imc_x_idade", "adolescente_imc_x_idade",
     "codigo_estado_nutricional_idoso", "estado_nutricional",
-    "classificacao_nutricional", "ds_estado_nutricional", "estado_nutricional_adulto", "imc_adulto"
+    "classificacao_nutricional", "ds_estado_nutricional", "ds_estado_nutricional_adulto", "ds_estado_nutricional_crianca", "ds_estado_nutricional_adolescente", "ds_estado_nutricional_idoso", "estado_nutricional_adulto", "imc_adulto"
   ]
 };
 
