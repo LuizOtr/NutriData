@@ -1,46 +1,52 @@
 # NutriData — SISVAN
 
-Dashboard acadêmico para exploração de dados públicos de estado nutricional do SISVAN, com interface React/Vite e servidor Node.js/Express como proxy da API.
+Dashboard acadêmico para exploração de dados públicos de estado nutricional do SISVAN, com React/Vite e publicação no GitHub Pages.
 
-## Requisitos
-- Node.js 18 ou superior (recomendado 20+).
-- Conexão com a internet para consultar a API e carregar Chart.js/Google Fonts.
+## Como os dados chegam ao dashboard
 
-## Instalação
-Abra o terminal na pasta do projeto:
+O GitHub Actions executa automaticamente a rotina `scripts/update_sisvan.py`, que:
+
+1. Baixa o arquivo público de Estado Nutricional disponibilizado pelo Ministério da Saúde.
+2. Extrai os registros do Paraná (UF = PR).
+3. Gera `public/data/sisvan-pr.json.gz`, um JSON compactado para reduzir o tráfego.
+4. Gera `public/data/metadata.json` com a fonte, a data da atualização e a quantidade de registros.
+5. Compila o React e publica o conteúdo da pasta `dist` no GitHub Pages.
+
+A atualização está agendada semanalmente (segunda-feira, 07:00 UTC) e também pode ser iniciada manualmente em **Actions → Update SISVAN data and deploy NutriData → Run workflow**.
+
+**Fonte oficial:** [Portal de Dados Abertos do SUS — SISVAN Estado Nutricional](https://dadosabertos.saude.gov.br/dataset/sisvan-estado-nutricional).
+
+## Executar localmente
+
+Requisitos: Node.js 22 ou superior e Python 3.12.
 
 ```bash
+python -m pip install pandas requests
+python scripts/update_sisvan.py
 npm install
-npm start
+npm run dev
 ```
 
-Acesse http://localhost:3000.
+O Vite inicia em http://localhost:5173. A base é gerada em `public/data` antes de abrir o dashboard.
 
-Para desenvolvimento com atualização automática da interface, use `npm run dev`. O Vite fica em http://localhost:5173 e encaminha as chamadas `/api` ao servidor Express na porta 3001. A produção continua usando a porta 3000 por padrão.
+Para compilar:
 
-**Não use Live Server** para executar esta versão. O servidor Express entrega o front-end e cria a rota intermediária `/api/sisvan`, evitando o bloqueio CORS do navegador.
-
-## Funcionamento
-- A aplicação consulta `GET https://apidadosabertos.saude.gov.br/sisvan/estado-nutricional`.
-- A primeira consulta usa `uf=PR`, `limit=20` e `offset=0`.
-- Use **Carregar mais** para avançar a paginação.
-- Os indicadores são calculados somente sobre os registros carregados na sessão.
-- O front-end tenta reconhecer diferentes nomes de campos; confirme os nomes reais no JSON antes de usar os indicadores em conclusões.
-
-## Limitações e cuidados metodológicos
-- A disponibilidade, autenticação, filtros e formato de resposta dependem da API oficial. Se a API exigir credenciais ou parâmetros adicionais, ajuste `server.cjs` conforme o Swagger.
-- O endpoint pode devolver uma estrutura diferente de `estados_nutricionais`; o extrator aceita arrays no nível superior ou dentro de uma propriedade.
-- O painel não deduplica pessoas por identificador. Remove apenas objetos idênticos dentro da sessão; isso não equivale a deduplicação epidemiológica.
-- "Excesso de peso" é uma aproximação exploratória por texto da classificação e não deve misturar critérios de diferentes fases da vida. Valide a classificação e o denominador antes de publicar resultados.
-- Dados de acompanhamento do SISVAN não representam automaticamente toda a população do Paraná.
-- Não armazene dados pessoais ou identificáveis. Use somente dados públicos e anonimizados.
+```bash
+npm run build
+```
 
 ## Estrutura
-- `server.cjs`: servidor Express e proxy da API.
-- `index.html`: entrada do Vite.
-- `public/css/style.css`: identidade visual.
-- `src/main.jsx`: inicialização do React.
-- `src/App.jsx`: componentes, consulta, indicadores, gráficos e tabela.
-- `vite.config.mjs`: configuração do Vite e proxy de desenvolvimento.
-- `server.cjs`: servidor Express e proxy da API.
-- `docs/diagnostico.md`: registro das descobertas e decisões.
+
+- `scripts/update_sisvan.py`: download, filtragem por UF e geração do JSON compactado.
+- `.github/workflows/deploy.yml`: atualização agendada e publicação no GitHub Pages.
+- `src/App.jsx`: dashboard, indicadores, gráficos, filtros e paginação.
+- `vite.config.mjs`: configuração do Vite e caminho-base do GitHub Pages.
+- `public/data/`: dados gerados durante a execução do workflow.
+
+## Cuidados metodológicos
+
+- A base disponibilizada pelo Ministério da Saúde é anonimizada, mas pode conter mais de um acompanhamento para a mesma pessoa. Quantidade de registros não equivale a quantidade de pessoas únicas.
+- O conjunto anual disponível deve ser identificado no painel e não deve ser apresentado como cobertura de todos os anos sem processamento dos demais arquivos históricos.
+- O dashboard apresenta a amostra do Paraná e não representa automaticamente toda a população do estado.
+- Classificações nutricionais de crianças, adolescentes, adultos e idosos seguem critérios diferentes. Valide o dicionário de dados antes de comparar grupos.
+- Os dados podem diferir dos relatórios consolidados públicos, pois o SISVAN incorpora acompanhamentos periodicamente.
