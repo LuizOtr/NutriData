@@ -299,6 +299,7 @@ export default function App() {
     if (!reset && !hasMore) return;
 
     requestLock.current = true;
+    if (reset) sourceRef.current = "local";
     const pageOffset = reset ? 0 : offset;
     const existing = reset ? [] : records;
     const requestLimit = Math.min(PAGE_SIZE_MAX, overrides.limit ?? limit);
