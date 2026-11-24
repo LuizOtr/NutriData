@@ -22,7 +22,7 @@ import pandas as pd
 import requests
 
 SOURCE_URL = (
-    "https://arquivosdadosabertos.saude.gov.br/dados/SISVAN/"
+    "https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/SISVAN/"
     "estado_nutricional/sisvan_estado_nutricional_2023.zip"
 )
 OUTPUT_DIR = Path("public/data")
