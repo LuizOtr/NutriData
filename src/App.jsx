@@ -331,7 +331,7 @@ export default function App() {
     }
   }
 
-  const filteredRecords = useMemo(() => records.filter(row => !normalizeText(municipalityFilter)
+  useEffect(() => {\n    fetchPage(true);\n  }, []);\n\n  const filteredRecords = useMemo(() => records.filter(row => !normalizeText(municipalityFilter)
     || normalizeText(getValue(row, fields.municipality)).includes(normalizeText(municipalityFilter))), [records, municipalityFilter]);
   const municipalities = new Set(filteredRecords.map(row => getValue(row, fields.municipality)).filter(Boolean));
   const adults = filteredRecords.filter(row => normalizeText(getValue(row, fields.phase)).includes("adult")).length;
