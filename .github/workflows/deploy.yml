@@ -1,81 +1,88 @@
-name: NutriData — build and publish
-
+name: NutriData — atualizar dados e publicar
 on:
   push:
     branches: [main]
   schedule:
     - cron: "0 7 * * 1"
   workflow_dispatch:
-
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
-
 concurrency:
-  group: nutridata-pages-deploy
+  group: nutridata-pages
   cancel-in-progress: true
-
 jobs:
-  build-and-deploy:
+  build:
+    runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-
-      - name: Setup Python
+        with:
+          fetch-depth: 0
+      - name: Configurar Python
+        if: github.event_name != 'push'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Install SISVAN pipeline dependencies
+      - name: Instalar dependências de dados
+        if: github.event_name != 'push'
         run: python -m pip install --disable-pip-version-check pandas requests
-
-      - name: Download and process SISVAN
+      - name: Baixar e agregar base oficial do SISVAN
+        if: github.event_name != 'push'
         run: python scripts/update_sisvan.py
-
-      - name: Validate published dataset
+      - name: Validar dataset antes do build
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
-
-          path = Path("public/dados/sisvan.json")
-          if not path.is_file() or path.stat().st_size == 0:
-              raise SystemExit("Arquivo public/dados/sisvan.json ausente ou vazio.")
-          with path.open(encoding="utf-8") as source:
-              records = json.load(source)
-          if not isinstance(records, list) or not records or not all(isinstance(row, dict) for row in records):
-              raise SystemExit("JSON inválido ou sem registros.")
-          print(f"JSON válido: {len(records)} registros.")
+          p = Path("public/data/sisvan-pr.json")
+          if not p.is_file(): raise SystemExit("Dataset ausente: public/data/sisvan-pr.json")
+          d = json.loads(p.read_text(encoding="utf-8"))
+          assert d.get("schema_version") == 1
+          assert d.get("summary", {}).get("total_records", 0) > 0, "Dataset sem registros"
+          assert isinstance(d.get("dimensions", {}).get("phase"), list)
+          print("Dataset OK:", d["summary"]["total_records"], "registros")
           PY
-
-      - name: Setup Node.js
+      - name: Salvar atualização da base no repositório
+        if: github.event_name != 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/data/sisvan-pr.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Atualiza resumo público SISVAN"
+            git push
+          fi
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Configurar Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
-      - name: Install frontend dependencies
+      - name: Instalar dependências
         run: npm ci
-
-      - name: Build React dashboard
+      - name: Compilar dashboard
         run: npm run build
-
-      - name: Verify dataset in build output
-        run: test -s dist/dados/sisvan.json
-
-      - name: Upload Pages artifact
+      - name: Verificar arquivos da publicação
+        run: |
+          test -s dist/index.html
+          test -s dist/data/sisvan-pr.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path("dist/data/sisvan-pr.json").read_text(encoding="utf-8"))
+          assert d["summary"]["total_records"] > 0
+          print("Build validado; dataset:", d["summary"]["total_records"])
+          PY
+      - name: Enviar artefato do Pages
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
-
-      - name: Deploy to GitHub Pages
+      - name: Publicar GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
