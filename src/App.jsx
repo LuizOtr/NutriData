@@ -245,7 +245,7 @@ export default function App() {
   const [status, setStatus] = useState({ text: "Não consultado", type: "neutral" });
   const [notice, setNotice] = useState({
     title: "Dados não carregados",
-    message: "Consulte a API para obter os registros do SISVAN."
+    message: "Carregue a base pública oficial do SISVAN para consultar os registros do Paraná."
   });
   const [toast, setToast] = useState("");
   const toastTimer = useRef(null);
@@ -274,11 +274,11 @@ export default function App() {
       setOffset(0);
       setHasMore(true);
     }
-    setStatus({ text: "Consultando API", type: "neutral" });
+    setStatus({ text: "Carregando base pública", type: "neutral" });
 
     const requestUf = overrides.uf ?? uf;
     const requestLimit = overrides.limit ?? limit;
-    const params = new URLSearchParams({ uf: requestUf, limit: String(requestLimit), offset: String(pageOffset) });
+    
     try {
       let allRecords = dataCache.current;
       if (!allRecords) {
@@ -324,7 +324,7 @@ export default function App() {
       console.error("Falha na consulta SISVAN:", error);
       const message = escapeError(error);
       setStatus({ text: "Falha na consulta", type: "error" });
-      setNotice({ title: "Não foi possível concluir", message: `${message}. Verifique o terminal do servidor para detalhes.` });
+      setNotice({ title: "Não foi possível concluir", message: `${message}. Verifique a execução mais recente do GitHub Actions para confirmar a atualização da base.` });
       showToast(message);
     } finally {
       setLoading(false);
