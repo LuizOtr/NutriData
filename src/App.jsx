@@ -248,7 +248,7 @@ export default function App() {
     message: "Consulte a API para obter os registros do SISVAN."
   });
   const [toast, setToast] = useState("");
-  const toastTimer = useRef(null);
+  const toastTimer = useRef(null);\n  const dataCache = useRef(null);
 
   function showToast(message) {
     setToast(message);
@@ -355,7 +355,7 @@ export default function App() {
           <section className="intro" id="overview">
             <div><h2>Estado nutricional da população</h2><p>Acompanhamentos do SISVAN para o Paraná.</p></div>
             <div className="filters">
-              <label>UF<select value={uf} onChange={event => { const value = event.target.value; setUf(value); fetchPage(true, { uf: value }); }}><option value="PR">Paraná (PR)</option><option value="">Todas (não recomendado)</option></select></label>
+              <label>UF<select value={uf} onChange={event => { const value = event.target.value; setUf(value); fetchPage(true, { uf: value }); }}><option value="PR">Paraná (PR)</option></select></label>
               <label>Registros por consulta<select value={limit} onChange={event => { const value = Number(event.target.value); setLimit(value); fetchPage(true, { limit: value }); }}><option value="20">20</option><option value="10">10</option><option value="5">5</option></select></label>
               <label>Município<input type="search" placeholder="Filtrar município" value={municipalityFilter} onChange={event => setMunicipalityFilter(event.target.value)} /></label>
               <button className="button dark" onClick={() => fetchPage(true)} disabled={loading}>{loading ? "Consultando..." : "Consultar API"}</button>
