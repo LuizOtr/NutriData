@@ -61,7 +61,7 @@ def main() -> None:
                     encoding = "latin-1"
                 try:
                     delimiter = csv.Sniffer().sniff(
-                        sample.decode(encoding), delimiters=";,\\t|"
+                        sample.decode(encoding), delimiters=";,\t|"
                     ).delimiter
                 except csv.Error:
                     delimiter = ";"
