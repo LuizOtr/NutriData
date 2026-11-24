@@ -38,7 +38,25 @@ jobs:
         run: python -m pip install --upgrade pip pandas requests
 
       - name: Download and prepare public SISVAN data
-        run: python scripts/update_sisvan.py
+        continue-on-error: true
+        timeout-minutes: 20
+        run: |
+          python scripts/update_sisvan.py
+          if [ ! -s public/data/sisvan-pr.json.gz ]; then
+            mkdir -p public/data
+            python - <<'PY'
+          import gzip, json
+          from pathlib import Path
+          with gzip.open("public/data/sisvan-pr.json.gz", "wt", encoding="utf-8") as f:
+              json.dump([], f)
+          Path("public/data/metadata.json").write_text(json.dumps({
+              "source": "Ministério da Saúde — SISVAN",
+              "uf": "PR",
+              "records": 0,
+              "status": "Dados temporariamente indisponíveis; publicação do site preservada."
+          }, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+          PY
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
