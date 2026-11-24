@@ -41,7 +41,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 20
         run: |
-          python scripts/update_sisvan.py
+          python scripts/update_sisvan.py || true
           if [ ! -s public/data/sisvan-pr.json.gz ]; then
             mkdir -p public/data
             python - <<'PY'
