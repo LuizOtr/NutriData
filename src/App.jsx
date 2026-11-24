@@ -282,7 +282,7 @@ export default function App() {
     try {
       let allRecords = dataCache.current;
       if (!allRecords) {
-        const response = await fetch(`${import.meta.env.BASE_URL}data/sisvan-pr.json.gz`);
+        const response = await fetch(`${import.meta.env.BASE_URL}data/sisvan-pr.json.gz`, { cache: "no-store" });
         if (!response.ok) throw new Error(`Não foi possível carregar a base pública (HTTP ${response.status}).`);
         if (typeof DecompressionStream === "undefined") {
           throw new Error("Este navegador não oferece suporte à descompressão gzip necessária para a base SISVAN.");
@@ -358,7 +358,7 @@ export default function App() {
         <main className="main-content">
           <header className="topbar">
             <div><span className="eyebrow">INTELIGÊNCIA EM SAÚDE PÚBLICA</span><h1>Monitoramento nutricional</h1></div>
-            <div className="top-actions"><span className={`status-badge ${status.type}`}>{status.text}</span><button className="button primary" onClick={() => fetchPage(true)} disabled={loading}>↻ Atualizar dados</button></div>
+            <div className="top-actions"><span className={`status-badge ${status.type}`}>{status.text}</span><button className="button primary" onClick={() => { dataCache.current = null; fetchPage(true); }} disabled={loading}>↻ Atualizar dados</button></div>
           </header>
 
           <section className="intro" id="overview">
