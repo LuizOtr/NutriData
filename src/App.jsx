@@ -96,9 +96,9 @@ export default function App() {
 
       {error && <div className="notice error" role="alert"><strong>Não foi possível carregar a base.</strong><span>{error} A publicação pode ser reconstruída pelo workflow de atualização do SISVAN.</span></div>}
       {loading && !dataset && <div className="loading-panel"><span className="loader" />Carregando indicadores publicados…</div>}
-      {!loading && !dataset && <div className="empty-state"><h2>Base de dados ainda não publicada</h2><p>Execute o workflow “NutriData — atualizar dados e publicar” no GitHub Actions para gerar a primeira versão.</p><a href="https://github.com/Gustav0c-DEV/NutriData/actions">Abrir GitHub Actions</a></div>}
+      {!loading && (!dataset || Number(dataset.summary?.total_records || 0) === 0) && <div className="empty-state"><h2>Base de dados ainda não publicada</h2><p>Execute o workflow “NutriData — atualizar dados e publicar” no GitHub Actions para gerar a primeira versão.</p><a href="https://github.com/Gustav0c-DEV/NutriData/actions">Abrir GitHub Actions</a></div>}
 
-      {dataset && <>
+      {dataset && Number(summary.total_records) > 0 && <>
         <section className="intro">
           <div><span className="eyebrow">RECORTE EPIDEMIOLÓGICO</span><h2>Estado nutricional da população acompanhada</h2><p>Indicadores agregados a partir da base pública do SISVAN. Os resultados representam registros de acompanhamento, não indivíduos únicos.</p></div>
           <div className="data-chip"><span className="status-dot" />Base validada<strong>{dataset.source_year || "2023"}</strong><small>Atualizada em {updatedAt}</small></div>
