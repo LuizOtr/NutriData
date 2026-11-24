@@ -279,17 +279,21 @@ export default function App() {
     const requestLimit = overrides.limit ?? limit;
     const params = new URLSearchParams({ uf: requestUf, limit: String(requestLimit), offset: String(pageOffset) });
     try {
-      const response = await fetch(`${import.meta.env.BASE_URL}data/sisvan-pr.json.gz`);
-      if (!response.ok) throw new Error(`Não foi possível carregar a base pública (HTTP ${response.status}).`);
-      if (typeof DecompressionStream === "undefined") {
-        throw new Error("Este navegador não oferece suporte à descompressão gzip necessária para a base SISVAN.");
-      }
-      const compressed = await response.arrayBuffer();
-      const decompressed = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("gzip"));
-      const payload = JSON.parse(await new Response(decompressed).text());
-      const allRecords = extractRecords(payload);
-      if (!allRecords.length) {
-        throw new Error("A base publicada não contém registros. Execute novamente a atualização do SISVAN no GitHub Actions.");
+      let allRecords = dataCache.current;
+      if (!allRecords) {
+        const response = await fetch(`${import.meta.env.BASE_URL}data/sisvan-pr.json.gz`);
+        if (!response.ok) throw new Error(`Não foi possível carregar a base pública (HTTP ${response.status}).`);
+        if (typeof DecompressionStream === "undefined") {
+          throw new Error("Este navegador não oferece suporte à descompressão gzip necessária para a base SISVAN.");
+        }
+        const compressed = await response.arrayBuffer();
+        const decompressed = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("gzip"));
+        const payload = JSON.parse(await new Response(decompressed).text());
+        allRecords = extractRecords(payload);
+        if (!allRecords.length) {
+          throw new Error("A base publicada não contém registros. Execute novamente a atualização do SISVAN no GitHub Actions.");
+        }
+        dataCache.current = allRecords;
       }
       const pageRecords = allRecords.slice(pageOffset, pageOffset + requestLimit);
       if (pageOffset >= allRecords.length) {
