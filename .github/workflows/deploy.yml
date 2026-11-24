@@ -1,4 +1,4 @@
-name: Update SISVAN data and deploy NutriData
+name: NutriData — build and publish
 
 on:
   push:
@@ -23,68 +23,79 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Cache prepared SISVAN dataset
+      - name: Restore SISVAN dataset cache
         uses: actions/cache@v4
         with:
           path: .cache/sisvan
-          key: sisvan-pr-${{ github.run_id }}
+          key: sisvan-pr-v2-${{ github.run_id }}
           restore-keys: |
-            sisvan-pr-
+            sisvan-pr-v2-
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install data pipeline dependencies
-        run: python -m pip install --upgrade pip pandas requests
+      - name: Install SISVAN pipeline dependencies
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: python -m pip install --disable-pip-version-check pandas requests
 
-      - name: Download and prepare public SISVAN data
+      - name: Refresh official SISVAN dataset
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         continue-on-error: true
         timeout-minutes: 20
-        run: |
-          if [ -s .cache/sisvan/sisvan-pr.json.gz ]; then
-            mkdir -p public/data
-            cp .cache/sisvan/sisvan-pr.json.gz public/data/sisvan-pr.json.gz
-            cp .cache/sisvan/metadata.json public/data/metadata.json
-            echo "Base SISVAN restaurada do cache."
-          elif [ ! -s public/data/sisvan-pr.json.gz ]; then
-            python scripts/update_sisvan.py || true
-            if [ -s public/data/sisvan-pr.json.gz ] && [ -s public/data/metadata.json ]; then
-              RECORDS=$(python -c "import json; print(json.load(open('public/data/metadata.json')).get('records', 0))")
-              if [ "$RECORDS" -gt 0 ]; then
-                mkdir -p .cache/sisvan
-                cp public/data/sisvan-pr.json.gz .cache/sisvan/sisvan-pr.json.gz
-                cp public/data/metadata.json .cache/sisvan/metadata.json
-                echo "Base SISVAN validada e preparada para cache."
-              fi
-            fi
-          fi
+        run: python scripts/update_sisvan.py
 
-      - name: Ensure data files exist for the frontend
+      - name: Restore cached data or prepare safe fallback
         if: always()
         run: |
-          mkdir -p public/data
-          if [ ! -s public/data/sisvan-pr.json.gz ]; then
-            python - <<'PY'
-          import gzip, json
-          from pathlib import Path
-          with gzip.open("public/data/sisvan-pr.json.gz", "wt", encoding="utf-8") as output:
-              json.dump([], output)
-          Path("public/data/metadata.json").write_text(json.dumps({
-              "source": "Ministério da Saúde — SISVAN",
-              "uf": "PR",
-              "records": 0,
-              "status": "Base ainda não sincronizada; execute a atualização manual."
-          }, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
-          PY
+          mkdir -p public/data .cache/sisvan
+          if [ ! -s public/data/sisvan-pr.json.gz ] && [ -s .cache/sisvan/sisvan-pr.json.gz ]; then
+            cp .cache/sisvan/sisvan-pr.json.gz public/data/sisvan-pr.json.gz
+            cp .cache/sisvan/metadata.json public/data/metadata.json
+            echo "Dataset restaurado do cache."
           fi
+          python - <<'PY'
+          import gzip
+          import json
+          import shutil
+          from pathlib import Path
+
+          data = Path("public/data/sisvan-pr.json.gz")
+          metadata = Path("public/data/metadata.json")
+          valid = False
+          try:
+              with gzip.open(data, "rt", encoding="utf-8") as source:
+                  records = json.load(source)
+              valid = isinstance(records, list) and len(records) > 0
+              if valid:
+                  with metadata.open(encoding="utf-8") as source:
+                      json.load(source)
+          except Exception as error:
+              print(f"Base não validada: {error}")
+
+          if valid:
+              Path(".cache/sisvan").mkdir(parents=True, exist_ok=True)
+              shutil.copy2(data, ".cache/sisvan/sisvan-pr.json.gz")
+              shutil.copy2(metadata, ".cache/sisvan/metadata.json")
+              print(f"Base validada: {len(records)} registros.")
+          else:
+              with gzip.open(data, "wt", encoding="utf-8") as output:
+                  json.dump([], output)
+              metadata.write_text(json.dumps({
+                  "source": "Ministério da Saúde — SISVAN",
+                  "uf": "PR",
+                  "records": 0,
+                  "status": "Base de contingência ainda não sincronizada."
+              }, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+              print("Publicação preservada; dashboard exibirá aviso de dados indisponíveis.")
+          PY
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -95,7 +106,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build React application
+      - name: Build React dashboard
         run: npm run build
 
       - name: Upload Pages artifact

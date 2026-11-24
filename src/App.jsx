@@ -33,6 +33,38 @@ function extractRecords(payload) {
   return Object.values(payload).find(Array.isArray) || [];
 }
 
+const SISVAN_API_URL = "https://apidadosabertos.saude.gov.br/sisvan/estado-nutricional";
+const PAGE_SIZE_MAX = 20;
+
+async function fetchApiPage(offset, limit) {
+  const params = new URLSearchParams({
+    uf: "PR",
+    limit: String(Math.min(PAGE_SIZE_MAX, limit)),
+    offset: String(offset)
+  });
+  const response = await fetch(`${SISVAN_API_URL}?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+    signal: AbortSignal.timeout(20000)
+  });
+  if (!response.ok) throw new Error(`API DEMAS respondeu HTTP ${response.status}`);
+  const payload = await response.json();
+  const records = extractRecords(payload);
+  if (!records.length) throw new Error("A API DEMAS não retornou registros para o Paraná.");
+  return records;
+}
+
+async function loadStaticDataset() {
+  const response = await fetch(`${import.meta.env.BASE_URL}data/sisvan-pr.json.gz`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Base pública indisponível (HTTP ${response.status}).`);
+  if (typeof DecompressionStream === "undefined") throw new Error("Este navegador não oferece suporte à leitura da base compactada.");
+  const compressed = await response.arrayBuffer();
+  const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("gzip"));
+  const records = extractRecords(JSON.parse(await new Response(stream).text()));
+  if (!records.length) throw new Error("A base pública ainda não possui registros. Execute a atualização do SISVAN no GitHub Actions.");
+  return records;
+}
+
 function classifyLabel(row) {
   const raw = getValue(row, fields.classification);
   if (typeof raw === "object") return JSON.stringify(raw);
@@ -250,6 +282,9 @@ export default function App() {
   const [toast, setToast] = useState("");
   const toastTimer = useRef(null);
   const dataCache = useRef(null);
+  const requestLock = useRef(false);
+  const sourceRef = useRef("api");
+  const [dataSource, setDataSource] = useState("Consultando API DEMAS");
 
   function showToast(message) {
     setToast(message);
@@ -263,71 +298,88 @@ export default function App() {
   }, []);
 
   async function fetchPage(reset = false, overrides = {}) {
-    if (loading) return;
+    if (requestLock.current) return;
     if (!reset && !hasMore) return;
 
+    requestLock.current = true;
     const pageOffset = reset ? 0 : offset;
     const existing = reset ? [] : records;
+    const requestLimit = Math.min(PAGE_SIZE_MAX, overrides.limit ?? limit);
     setLoading(true);
     if (reset) {
       setRecords([]);
       setOffset(0);
       setHasMore(true);
+      setNotice({ title: "Consultando dados", message: "Conectando à fonte oficial do SISVAN." });
     }
-    setStatus({ text: "Carregando base pública", type: "neutral" });
+    setStatus({ text: "Consultando dados", type: "neutral" });
 
-    const requestUf = overrides.uf ?? uf;
-    const requestLimit = overrides.limit ?? limit;
-    
     try {
-      let allRecords = dataCache.current;
-      if (!allRecords) {
-        const response = await fetch(`${import.meta.env.BASE_URL}data/sisvan-pr.json.gz`, { cache: "no-store" });
-        if (!response.ok) throw new Error(`Não foi possível carregar a base pública (HTTP ${response.status}).`);
-        if (typeof DecompressionStream === "undefined") {
-          throw new Error("Este navegador não oferece suporte à descompressão gzip necessária para a base SISVAN.");
+      let pageRecords;
+      let updatedRecords;
+      let nextSource = sourceRef.current;
+
+      if (sourceRef.current === "api") {
+        try {
+          pageRecords = await fetchApiPage(pageOffset, requestLimit);
+          updatedRecords = [...existing, ...pageRecords];
+          nextSource = "api";
+          setDataSource("API DEMAS — Ministério da Saúde");
+        } catch (apiError) {
+          console.warn("API DEMAS indisponível; usando base pública de contingência:", apiError);
+          const allRecords = dataCache.current || await loadStaticDataset();
+          dataCache.current = allRecords;
+          pageRecords = allRecords.slice(pageOffset, pageOffset + requestLimit);
+          updatedRecords = allRecords.slice(0, pageOffset + pageRecords.length);
+          nextSource = "static";
+          setDataSource("Base pública SISVAN 2023");
+          if (reset) {
+            setNotice({
+              title: "Base pública de contingência",
+              message: "A API DEMAS não respondeu. O painel está usando a base pública oficial do SISVAN, filtrada para o Paraná."
+            });
+          }
         }
-        const compressed = await response.arrayBuffer();
-        const decompressed = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("gzip"));
-        const payload = JSON.parse(await new Response(decompressed).text());
-        allRecords = extractRecords(payload);
-        if (!allRecords.length) {
-          throw new Error("A base publicada não contém registros. Execute novamente a atualização do SISVAN no GitHub Actions.");
-        }
+      } else {
+        const allRecords = dataCache.current || await loadStaticDataset();
         dataCache.current = allRecords;
+        pageRecords = allRecords.slice(pageOffset, pageOffset + requestLimit);
+        updatedRecords = [...existing, ...pageRecords];
+        nextSource = "static";
+        setDataSource("Base pública SISVAN 2023");
       }
-      const pageRecords = allRecords.slice(pageOffset, pageOffset + requestLimit);
-      if (pageOffset >= allRecords.length) {
+
+      sourceRef.current = nextSource;
+      if (!pageRecords.length) {
         setHasMore(false);
-        setStatus({ text: "Base carregada", type: "ok" });
+        setStatus({ text: "Consulta concluída", type: "ok" });
+        if (!updatedRecords.length) {
+          setNotice({ title: "Sem registros", message: "A fonte consultada não retornou registros para o Paraná." });
+        }
         return;
       }
 
-      const keys = new Set(existing.map(row => JSON.stringify(row)));
-      const uniquePage = pageRecords.filter(row => {
-        const key = JSON.stringify(row);
-        if (keys.has(key)) return false;
-        keys.add(key);
-        return true;
-      });
-      const updatedRecords = [...existing, ...uniquePage];
       setRecords(updatedRecords);
       setOffset(pageOffset + pageRecords.length);
       setHasMore(pageRecords.length === requestLimit);
-      setStatus({ text: "Dados oficiais carregados", type: "ok" });
+      setStatus({ text: "Dados carregados", type: "ok" });
       setNotice({
         title: "Consulta concluída",
-        message: `${pageRecords.length} registros exibidos nesta página. ${updatedRecords.length} registros carregados nesta sessão, de uma base oficial do SISVAN filtrada para o Paraná.`
+        message: `${updatedRecords.length.toLocaleString("pt-BR")} registros carregados. Fonte: ${nextSource === "api" ? "API DEMAS" : "base pública SISVAN 2023"}.`
       });
-      showToast(`${pageRecords.length} registros recebidos.`);
+      showToast(`${pageRecords.length.toLocaleString("pt-BR")} registros recebidos.`);
     } catch (error) {
       console.error("Falha na consulta SISVAN:", error);
       const message = escapeError(error);
       setStatus({ text: "Falha na consulta", type: "error" });
-      setNotice({ title: "Não foi possível concluir", message: `${message}. Verifique a execução mais recente do GitHub Actions para confirmar a atualização da base.` });
+      setNotice({
+        title: "Não foi possível carregar os dados",
+        message: `${message} Confira a publicação da base pública no GitHub Actions.`
+      });
       showToast(message);
     } finally {
       setLoading(false);
+      requestLock.current = false;
     }
   }
 
@@ -351,18 +403,18 @@ export default function App() {
           <a className="nav-link active" href="#overview"><span>▦</span> Visão geral</a>
           <a className="nav-link" href="#analysis"><span>◫</span> Análises</a>
           <a className="nav-link" href="#records"><span>☷</span> Registros</a>
-          <div className="sidebar-note"><strong>Fonte de dados</strong><p>API de Dados Abertos do Ministério da Saúde.</p><span className="source-status"><i /> Consulta sob demanda</span></div>
+          <div className="sidebar-note"><strong>Fonte de dados</strong><p>API de Dados Abertos do Ministério da Saúde.</p><span className="source-status"><i /> {dataSource}</span></div>
           <div className="side-footer">Projeto acadêmico • 2026</div>
         </aside>
 
         <main className="main-content">
           <header className="topbar">
             <div><span className="eyebrow">INTELIGÊNCIA EM SAÚDE PÚBLICA</span><h1>Monitoramento nutricional</h1></div>
-            <div className="top-actions"><span className={`status-badge ${status.type}`}>{status.text}</span><button className="button primary" onClick={() => { dataCache.current = null; fetchPage(true); }} disabled={loading}>↻ Atualizar dados</button></div>
+            <div className="top-actions"><span className={`status-badge ${status.type}`}>{status.text}</span><button className="button primary" onClick={() => { dataCache.current = null; sourceRef.current = "api"; fetchPage(true); }} disabled={loading}>↻ Atualizar dados</button></div>
           </header>
 
           <section className="intro" id="overview">
-            <div><h2>Estado nutricional da população</h2><p>Acompanhamentos de 2023 do SISVAN para o Paraná. Base pública atualizada automaticamente.</p></div>
+            <div><h2>Estado nutricional da população</h2><p>Consulta da API oficial do SISVAN para o Paraná, com base pública de contingência quando necessário.</p></div>
             <div className="filters">
               <label>UF<select value={uf} onChange={event => { const value = event.target.value; setUf(value); fetchPage(true, { uf: value }); }}><option value="PR">Paraná (PR)</option></select></label>
               <label>Registros por consulta<select value={limit} onChange={event => { const value = Number(event.target.value); setLimit(value); fetchPage(true, { limit: value }); }}><option value="20">20</option><option value="10">10</option><option value="5">5</option></select></label>

@@ -8,11 +8,13 @@ const API_BASE = "https://apidadosabertos.saude.gov.br/sisvan/estado-nutricional
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static(path.join(__dirname, "dist")));
 
-// Proxy same-origin: evita que o navegador bloqueie a leitura por CORS.
 app.get("/api/sisvan", async (req, res) => {
   try {
-    const allowed = ["uf", "limit", "offset", "ano", "ano_referencia",
-                     "competencia", "municipio", "fase_vida", "sexo"];
+    const allowed = [
+      "codigo_municipio", "uf", "codigo_cnes", "idade_minima", "idade_maxima",
+      "codigo_fase_vida", "codigo_povo_comunidade", "codigo_escolaridade",
+      "ano_mes_competencia", "gestante"
+    ];
     const params = new URLSearchParams();
 
     for (const key of allowed) {
@@ -22,17 +24,24 @@ app.get("/api/sisvan", async (req, res) => {
       }
     }
 
-    // Valores conservadores para a primeira consulta.
+    const limit = Number.parseInt(String(req.query.limit ?? "20"), 10);
+    const offset = Number.parseInt(String(req.query.offset ?? "0"), 10);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 20) {
+      return res.status(400).json({ error: "O parâmetro limit deve estar entre 1 e 20." });
+    }
+    if (!Number.isInteger(offset) || offset < 0) {
+      return res.status(400).json({ error: "O parâmetro offset deve ser maior ou igual a zero." });
+    }
+
+    params.set("limit", String(limit));
+    params.set("offset", String(offset));
     if (!params.has("uf")) params.set("uf", "PR");
-    if (!params.has("limit")) params.set("limit", "20");
-    if (!params.has("offset")) params.set("offset", "0");
 
-    const url = `${API_BASE}?${params.toString()}`;
-    console.log(`[SISVAN] GET ${url}`);
-
-    const upstream = await fetch(url, {
-      method: "GET",
-      headers: { "Accept": "application/json" },
+    const upstream = await fetch(`${API_BASE}?${params.toString()}`, {
+      headers: {
+        Accept: "application/json",
+        ...(process.env.SISVAN_API_KEY ? { Authorization: `Bearer ${process.env.SISVAN_API_KEY}` } : {})
+      },
       signal: AbortSignal.timeout(30000)
     });
 
@@ -59,5 +68,4 @@ app.get("*", (_req, res) => {
 
 app.listen(PORT, () => {
   console.log(`NutriData disponível em http://localhost:${PORT}`);
-  console.log("Para encerrar, pressione Ctrl + C.");
 });

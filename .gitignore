@@ -3,3 +3,7 @@ node_modules/
 .DS_Store
 data/*.json
 !data/.gitkeep
+dist/
+.cache/
+public/data/*.json
+public/data/*.json.gz
