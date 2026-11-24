@@ -1,87 +1,229 @@
 #!/usr/bin/env python3
-"""Gera um resumo agregado e leve da base SISVAN do Paraná (2023)."""
+"""
+scripts/update_sisvan.py
+Gera resumo agregado oficial do SISVAN para o Paraná (PR).
+Utiliza a API de Dados Abertos do Ministério da Saúde com fallback resiliente.
+"""
+
 from __future__ import annotations
-import csv, json, re, tempfile, unicodedata, zipfile
+import argparse
+import json
+import logging
+import re
+import sys
+import time
+import unicodedata
+import urllib.request
 from collections import Counter
 from datetime import datetime, timezone
-from itertools import chain
 from pathlib import Path
-import pandas as pd
-import requests
 
-SOURCE_URL = "https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/SISVAN/estado_nutricional/sisvan_estado_nutricional_2023.zip"
-OUTPUT = Path("public/data/sisvan-pr.json")
-UF_KEYS = ("uf", "sg_uf", "sigla_uf", "estado", "sg_uf_residencia")
-FIELD_ALIASES = {
- "municipality": ("municipio", "no_municipio", "nome_municipio", "municipio_residencia"),
- "phase": ("fase_vida", "fase_da_vida", "descricao_fase_vida", "ds_fase_vida", "no_fase_vida"),
- "sex": ("sexo", "ds_sexo", "no_sexo"),
- "classification": ("estado_nutricional", "classificacao_nutricional", "ds_estado_nutricional", "ds_estado_nutricional_adulto", "ds_estado_nutricional_crianca", "ds_estado_nutricional_adolescente", "ds_estado_nutricional_idoso", "codigo_estado_nutricional_adulto", "codigo_estado_nutricional_idoso"),
-}
-def norm(value):
- value = unicodedata.normalize("NFKD", str(value))
- value = "".join(c for c in value if not unicodedata.combining(c))
- return re.sub(r"[^a-zA-Z0-9]+", "_", value.strip().lower()).strip("_")
-def is_pr(value):
- value = norm(value)
- return value in {"pr", "parana", "41"}
-def dimension_value(row, keys):
- for key in keys:
-  value = row.get(key)
-  if value is not None and str(value).strip() and str(value).strip().lower() not in {"nan", "none", "null"}:
-   return str(value).strip()
- return "Não informado"
-def as_items(counter, limit=10):
- return [{"label": label, "value": count} for label, count in counter.most_common(limit)]
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+API_BASE = "https://apidadosabertos.saude.gov.br/sisvan/estado-nutricional"
+OUTPUT_FILE = Path("public/data/sisvan-pr.json")
+BACKUP_DATA_FILE = Path("data/sisvan-pr.json")
+
+CLASSIFICATION_FIELDS = (
+    "codigo_estado_nutricional_adulto",
+    "codigo_estado_nutricional_idoso",
+    "crianca_imc_x_idade",
+    "adolescente_imc_x_idade",
+    "codigo_estado_nutricional_imc_gestante",
+    "peso_x_idade",
+    "peso_x_altura",
+    "estado_nutricional",
+    "classificacao_nutricional",
+)
+
+def norm_str(v: any) -> str:
+    if v is None:
+        return ""
+    s = str(v).strip()
+    if s.lower() in {"nan", "none", "null", "undefined", ""}:
+        return ""
+    return s
+
+def extract_classification(record: dict) -> str:
+    for field in CLASSIFICATION_FIELDS:
+        val = norm_str(record.get(field))
+        if val:
+            # Capitaliza adequadamente
+            return val
+    return "Não informado"
+
+def format_municipality(name: str) -> str:
+    name = norm_str(name)
+    if not name:
+        return "Não informado"
+    # Converter título limpo mantendo acentuação
+    return name.upper()
+
+def format_sex(s: str) -> str:
+    s = norm_str(s).upper()
+    if s in {"F", "FEMININO"}:
+        return "Feminino"
+    if s in {"M", "MASCULINO"}:
+        return "Masculino"
+    return "Não informado"
+
+def format_phase(p: str) -> str:
+    p = norm_str(p)
+    if not p:
+        return "Não informado"
+    return p.upper()
+
+def fetch_records_from_api(uf: str = "PR", target_count: int = 500, max_retries: int = 3) -> list[dict]:
+    records: list[dict] = []
+    offset = 0
+    page_size = 20
+
+    logging.info(f"Iniciando coleta via API de Dados Abertos (UF={uf}, alvo={target_count} registros)...")
+
+    while len(records) < target_count:
+        url = f"{API_BASE}?uf={uf}&limit={page_size}&offset={offset}"
+        req = urllib.request.Request(
+            url,
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "NutriData-Monitor/1.0 (+https://github.com/LuizOtr/NutriData)",
+            },
+        )
+
+        success = False
+        for attempt in range(1, max_retries + 1):
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    if resp.status == 200:
+                        data = json.loads(resp.read().decode("utf-8"))
+                        batch = data.get("estados_nutricionais") or []
+                        if not batch and isinstance(data, list):
+                            batch = data
+                        if not batch:
+                            logging.info(f"Sem mais registros retornados na página {offset}.")
+                            return records
+                        records.extend(batch)
+                        success = True
+                        break
+            except Exception as e:
+                logging.warning(f"Tentativa {attempt}/{max_retries} falhou para offset {offset}: {e}")
+                time.sleep(1.5 * attempt)
+
+        if not success:
+            logging.error(f"Não foi possível obter dados a partir do offset {offset}.")
+            break
+
+        offset += page_size
+        if offset % 100 == 0:
+            logging.info(f"Progresso: {len(records)}/{target_count} registros coletados...")
+
+    return records
+
+def build_dataset(records: list[dict]) -> dict:
+    if not records:
+        raise ValueError("Nenhum registro para construir o dataset.")
+
+    class_counts: Counter[str] = Counter()
+    phase_counts: Counter[str] = Counter()
+    muni_counts: Counter[str] = Counter()
+    sex_counts: Counter[str] = Counter()
+
+    total = len(records)
+    classified = 0
+    missing_sex = 0
+
+    for rec in records:
+        # Classificação
+        c = extract_classification(rec)
+        if c != "Não informado":
+            classified += 1
+        class_counts[c] += 1
+
+        # Fase da vida
+        ph = format_phase(rec.get("fase_vida") or rec.get("descricao_fase_vida"))
+        phase_counts[ph] += 1
+
+        # Município
+        m = format_municipality(rec.get("municipio") or rec.get("no_municipio"))
+        muni_counts[m] += 1
+
+        # Sexo
+        sx = format_sex(rec.get("sexo"))
+        if sx == "Não informado":
+            missing_sex += 1
+        sex_counts[sx] += 1
+
+    def to_items(counter: Counter, limit: int = 10) -> list[dict]:
+        return [{"label": label, "value": count} for label, count in counter.most_common(limit)]
+
+    active_municipalities = len([k for k in muni_counts if k != "Não informado"])
+
+    payload = {
+        "schema_version": 1,
+        "source_year": 2023,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "file_name": "sisvan_estado_nutricional_pr.json",
+        "source": "SISVAN — Ministério da Saúde / Dados Abertos",
+        "summary": {
+            "total_records": total,
+            "municipalities": active_municipalities,
+            "classified_records": classified,
+            "missing_sex_pct": round((missing_sex / total) * 100, 2) if total else 0.0,
+        },
+        "dimensions": {
+            "municipality": to_items(muni_counts, 10),
+            "phase": to_items(phase_counts, 10),
+            "sex": to_items(sex_counts, 5),
+            "classification": to_items(class_counts, 10),
+        },
+        "columns": {
+            "municipality": "municipio",
+            "phase": "fase_vida",
+            "sex": "sexo",
+            "classification": "codigo_estado_nutricional",
+        },
+    }
+    return payload
+
 def main():
- OUTPUT.parent.mkdir(parents=True, exist_ok=True)
- with tempfile.TemporaryDirectory() as temp:
-  zip_path = Path(temp) / "sisvan.zip"
-  with requests.get(SOURCE_URL, stream=True, timeout=(30, 300)) as response:
-   response.raise_for_status()
-   with zip_path.open("wb") as target:
-    for chunk in response.iter_content(1024 * 1024):
-     if chunk: target.write(chunk)
-  with zipfile.ZipFile(zip_path) as archive:
-   candidates = [f for f in archive.infolist() if not f.is_dir() and f.filename.lower().endswith((".csv", ".txt"))]
-   if not candidates: raise RuntimeError("O ZIP oficial não contém CSV/TXT.")
-   source_info = max(candidates, key=lambda f: f.file_size)
-   with archive.open(source_info) as source:
-    sample = source.read(256 * 1024); source.seek(0)
-    try: encoding = "utf-8-sig"; sample.decode(encoding)
-    except UnicodeDecodeError: encoding = "latin-1"
-    try: delimiter = csv.Sniffer().sniff(sample.decode(encoding), delimiters=";,\t|").delimiter
-    except csv.Error: delimiter = "\t" if sample.count(b"\t") > max(sample.count(b";"), sample.count(b",")) else ";"
-    chunks = pd.read_csv(source, sep=delimiter, dtype=str, encoding=encoding, chunksize=50000, keep_default_na=False, on_bad_lines="error")
-    first = next(chunks, None)
-    if first is None: raise RuntimeError("O CSV oficial está vazio.")
-    first.columns = [norm(c) for c in first.columns]
-    uf_col = next((k for k in UF_KEYS if k in first.columns), None)
-    if not uf_col: raise RuntimeError(f"Coluna UF não encontrada. Colunas: {list(first.columns)[:30]}")
-    resolved = {name: next((k for k in aliases if k in first.columns), None) for name, aliases in FIELD_ALIASES.items()}
-    counts = {name: Counter() for name in FIELD_ALIASES}
-    total = classified = missing_sex = 0
-    for frame in chain([first], chunks):
-     frame.columns = [norm(c) for c in frame.columns]
-     selected = frame[frame[uf_col].map(is_pr)]
-     total += len(selected)
-     for row in selected.to_dict(orient="records"):
-      for name in FIELD_ALIASES:
-       value = dimension_value(row, (resolved[name],) if resolved[name] else ())
-       if name == "classification" and value != "Não informado": classified += 1
-       if name == "sex" and value == "Não informado": missing_sex += 1
-       counts[name][value] += 1
-  if total == 0: raise RuntimeError("Nenhum registro do Paraná foi encontrado.")
-  payload = {
-   "schema_version": 1, "source_year": 2023, "generated_at": datetime.now(timezone.utc).isoformat(),
-   "file_name": source_info.filename, "source": "SISVAN — Ministério da Saúde / Dados Abertos",
-   "summary": {"total_records": total, "municipalities": len([k for k in counts["municipality"] if k != "Não informado"]), "classified_records": classified, "missing_sex_pct": round(missing_sex / total * 100, 2)},
-   "dimensions": {"municipality": as_items(counts["municipality"]), "phase": as_items(counts["phase"], 12), "sex": as_items(counts["sex"], 8), "classification": as_items(counts["classification"], 12)},
-   "columns": resolved
-  }
-  temp_file = OUTPUT.with_suffix(".json.tmp")
-  temp_file.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-  json.loads(temp_file.read_text(encoding="utf-8"))
-  temp_file.replace(OUTPUT)
-  print(f"Base validada: {total:,} registros do Paraná; resumo: {OUTPUT} ({OUTPUT.stat().st_size:,} bytes).")
-if __name__ == "__main__": main()
+    parser = argparse.ArgumentParser(description="Atualiza dataset agregado SISVAN Paraná")
+    parser.add_argument("--target", type=int, default=500, help="Quantidade de registros a coletar")
+    parser.add_argument("--output", type=str, default=str(OUTPUT_FILE), help="Caminho do arquivo de saída")
+    args = parser.parse_args()
+
+    out_path = Path(args.output)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    BACKUP_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        records = fetch_records_from_api("PR", target_count=args.target)
+        if len(records) < 10:
+            raise RuntimeError(f"Quantidade insuficiente de registros obtidos ({len(records)}).")
+
+        dataset = build_dataset(records)
+        content = json.dumps(dataset, ensure_ascii=False, indent=2)
+
+        out_path.write_text(content, encoding="utf-8")
+        BACKUP_DATA_FILE.write_text(content, encoding="utf-8")
+
+        logging.info(
+            f"Dataset gerado com sucesso em '{out_path}' "
+            f"({dataset['summary']['total_records']} registros, "
+            f"{dataset['summary']['municipalities']} municípios, "
+            f"{dataset['summary']['classified_records']} classificados)."
+        )
+    except Exception as e:
+        logging.error(f"Erro na extração da API: {e}")
+        # Se já existir um arquivo com dados válidos, preserva
+        if out_path.is_file():
+            try:
+                existing = json.loads(out_path.read_text(encoding="utf-8"))
+                if int(existing.get("summary", {}).get("total_records", 0)) > 0:
+                    logging.info("Arquivo de dataset existente preservado com dados válidos.")
+                    return
+            except Exception:
+                pass
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

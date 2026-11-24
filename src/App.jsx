@@ -56,18 +56,35 @@ export default function App() {
   async function loadData() {
     setLoading(true);
     setError("");
-    try {
-      const response = await fetch(`${DATA_URL}?v=${Date.now()}`, { cache: "no-store" });
-      if (!response.ok) throw new Error(`Arquivo de dados indisponível (HTTP ${response.status}).`);
-      const payload = await response.json();
-      if (!payload || typeof payload !== "object" || !payload.summary) throw new Error("O arquivo de dados possui formato inválido.");
+    const urlsToTry = [
+      `${import.meta.env.BASE_URL}data/sisvan-pr.json`,
+      "./data/sisvan-pr.json",
+      "data/sisvan-pr.json",
+      "/NutriData/data/sisvan-pr.json"
+    ];
+    let payload = null;
+    let lastError = null;
+    for (const url of urlsToTry) {
+      try {
+        const response = await fetch(`${url}?v=${Date.now()}`, { cache: "no-store" });
+        if (response.ok) {
+          const json = await response.json();
+          if (json && json.summary) {
+            payload = json;
+            break;
+          }
+        }
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    if (payload) {
       setDataset(payload);
       setUpdatedAt(new Date(payload.generated_at || Date.now()).toLocaleString("pt-BR"));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao carregar os dados.");
-    } finally {
-      setLoading(false);
+    } else {
+      setError(lastError instanceof Error ? lastError.message : "Falha ao carregar o arquivo de dados.");
     }
+    setLoading(false);
   }
 
   useEffect(() => { loadData(); }, []);
@@ -96,7 +113,7 @@ export default function App() {
 
       {error && <div className="notice error" role="alert"><strong>Não foi possível carregar a base.</strong><span>{error} A publicação pode ser reconstruída pelo workflow de atualização do SISVAN.</span></div>}
       {loading && !dataset && <div className="loading-panel"><span className="loader" />Carregando indicadores publicados…</div>}
-      {!loading && (!dataset || Number(dataset.summary?.total_records || 0) === 0) && <div className="empty-state"><h2>Base de dados ainda não publicada</h2><p>Execute o workflow “NutriData — atualizar dados e publicar” no GitHub Actions para gerar a primeira versão.</p><a href="https://github.com/Gustav0c-DEV/NutriData/actions">Abrir GitHub Actions</a></div>}
+      {!loading && (!dataset || Number(dataset.summary?.total_records || 0) === 0) && <div className="empty-state"><h2>Base de dados ainda não publicada</h2><p>Execute o workflow “Deploy NutriData to GitHub Pages” no GitHub Actions para atualizar a publicação.</p><a href="https://github.com/LuizOtr/NutriData/actions" target="_blank" rel="noreferrer">Abrir GitHub Actions</a></div>}
 
       {dataset && Number(summary.total_records) > 0 && <>
         <section className="intro">

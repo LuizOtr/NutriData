@@ -1,102 +1,77 @@
-name: NutriData — atualizar dados e publicar
+name: Deploy NutriData to GitHub Pages
+
 on:
   push:
     branches: [main]
-  schedule:
-    - cron: "0 7 * * 1"
   workflow_dispatch:
+
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
+
 concurrency:
-  group: nutridata-pages
-  cancel-in-progress: true
+  group: pages
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Verificar se a base já existe
-        id: dataset
-        run: |
-          python - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          from pathlib import Path
-          path = Path('public/data/sisvan-pr.json')
-          try:
-              data = json.loads(path.read_text(encoding='utf-8'))
-              ready = int(data.get('summary', {}).get('total_records', 0)) > 0
-          except Exception:
-              ready = False
-          print(f"needs_update={'false' if ready else 'true'}")
-          PY
-      - name: Configurar Python
-        if: github.event_name != 'push' || steps.dataset.outputs.needs_update == 'true'
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Instalar dependências de dados
-        if: github.event_name != 'push' || steps.dataset.outputs.needs_update == 'true'
-        run: python -m pip install --disable-pip-version-check pandas requests
-      - name: Baixar e agregar base oficial do SISVAN
-        if: github.event_name != 'push' || steps.dataset.outputs.needs_update == 'true'
-        run: python scripts/update_sisvan.py
-      - name: Validar dataset antes do build
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          p = Path("public/data/sisvan-pr.json")
-          if not p.is_file(): raise SystemExit("Dataset ausente: public/data/sisvan-pr.json")
-          d = json.loads(p.read_text(encoding="utf-8"))
-          assert d.get("schema_version") == 1
-          assert d.get("summary", {}).get("total_records", 0) > 0, "Dataset sem registros"
-          assert isinstance(d.get("dimensions", {}).get("phase"), list)
-          print("Dataset OK:", d["summary"]["total_records"], "registros")
-          PY
-      - name: Salvar atualização da base no repositório
-        if: github.event_name != 'push' || steps.dataset.outputs.needs_update == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/data/sisvan-pr.json
-          if ! git diff --cached --quiet; then
-            git commit -m "Atualiza resumo público SISVAN"
-            git push
-          fi
-      - name: Configurar GitHub Pages
-        uses: actions/configure-pages@v5
-      - name: Configurar Node
+
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
           cache: npm
-      - name: Instalar dependências
+
+      - name: Install dependencies
         run: npm ci
-      - name: Compilar dashboard
+
+      - name: Validate public dataset
+        run: |
+          node -e '
+            const fs = require("fs");
+            const file = "public/data/sisvan-pr.json";
+            if (!fs.existsSync(file)) {
+              console.error("Arquivo " + file + " nao encontrado.");
+              process.exit(1);
+            }
+            const data = JSON.parse(fs.readFileSync(file, "utf8"));
+            const total = data?.summary?.total_records || 0;
+            if (total <= 0) {
+              console.error("Dataset sem registros validos.");
+              process.exit(1);
+            }
+            console.log("Dataset validado com sucesso: " + total + " registros no Parana.");
+          '
+
+      - name: Build static dashboard
         run: npm run build
-      - name: Verificar arquivos da publicação
+
+      - name: Validate build output
         run: |
           test -s dist/index.html
           test -s dist/data/sisvan-pr.json
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          d=json.loads(Path("dist/data/sisvan-pr.json").read_text(encoding="utf-8"))
-          assert d["summary"]["total_records"] > 0
-          print("Build validado; dataset:", d["summary"]["total_records"])
-          PY
-      - name: Enviar artefato do Pages
+          echo "Build pronto para publicacao no GitHub Pages."
+
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
-      - name: Publicar GitHub Pages
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

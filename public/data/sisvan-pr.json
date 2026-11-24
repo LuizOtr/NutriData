@@ -1,20 +1,149 @@
 {
   "schema_version": 1,
   "source_year": 2023,
-  "generated_at": null,
-  "file_name": null,
+  "generated_at": "2026-11-24T22:45:39.888569+00:00",
+  "file_name": "sisvan_estado_nutricional_pr.json",
   "source": "SISVAN — Ministério da Saúde / Dados Abertos",
   "summary": {
-    "total_records": 0,
-    "municipalities": 0,
-    "classified_records": 0,
-    "missing_sex_pct": null
+    "total_records": 399,
+    "municipalities": 166,
+    "classified_records": 399,
+    "missing_sex_pct": 0.0
   },
   "dimensions": {
-    "municipality": [],
-    "phase": [],
-    "sex": [],
-    "classification": []
+    "municipality": [
+      {
+        "label": "CURITIBA",
+        "value": 23
+      },
+      {
+        "label": "TOLEDO",
+        "value": 14
+      },
+      {
+        "label": "PINHAIS",
+        "value": 14
+      },
+      {
+        "label": "GUARAPUAVA",
+        "value": 13
+      },
+      {
+        "label": "CASCAVEL",
+        "value": 13
+      },
+      {
+        "label": "PONTA GROSSA",
+        "value": 12
+      },
+      {
+        "label": "MARINGA",
+        "value": 10
+      },
+      {
+        "label": "FAZENDA RIO GRANDE",
+        "value": 9
+      },
+      {
+        "label": "COLOMBO",
+        "value": 9
+      },
+      {
+        "label": "SAO JOSE DOS PINHAIS",
+        "value": 8
+      }
+    ],
+    "phase": [
+      {
+        "label": "ADULTO",
+        "value": 164
+      },
+      {
+        "label": "ADOLESCENTE",
+        "value": 59
+      },
+      {
+        "label": "ENTRE 2 ANOS A 5 ANOS",
+        "value": 49
+      },
+      {
+        "label": "ENTRE 5 ANOS A 7 ANOS",
+        "value": 34
+      },
+      {
+        "label": "IDOSO",
+        "value": 33
+      },
+      {
+        "label": "ENTRE 6 MESES A 2 ANOS",
+        "value": 29
+      },
+      {
+        "label": "ENTRE 7 ANOS A 10 ANOS",
+        "value": 26
+      },
+      {
+        "label": "MENOR DE 6 MESES",
+        "value": 5
+      }
+    ],
+    "sex": [
+      {
+        "label": "Feminino",
+        "value": 291
+      },
+      {
+        "label": "Masculino",
+        "value": 108
+      }
+    ],
+    "classification": [
+      {
+        "label": "Eutrofia",
+        "value": 127
+      },
+      {
+        "label": "Sobrepeso",
+        "value": 84
+      },
+      {
+        "label": "Adequado ou eutrófico",
+        "value": 68
+      },
+      {
+        "label": "Risco de sobrepeso",
+        "value": 39
+      },
+      {
+        "label": "Obesidade Grau I",
+        "value": 37
+      },
+      {
+        "label": "Obesidade",
+        "value": 11
+      },
+      {
+        "label": "Obesidade Grau II",
+        "value": 11
+      },
+      {
+        "label": "Baixo peso",
+        "value": 11
+      },
+      {
+        "label": "Obesidade Grau III",
+        "value": 5
+      },
+      {
+        "label": "Magreza acentuada",
+        "value": 4
+      }
+    ]
   },
-  "columns": {}
+  "columns": {
+    "municipality": "municipio",
+    "phase": "fase_vida",
+    "sex": "sexo",
+    "classification": "codigo_estado_nutricional"
+  }
 }
