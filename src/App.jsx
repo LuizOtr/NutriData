@@ -54,14 +54,11 @@ async function fetchApiPage(offset, limit) {
   return records;
 }
 
-async function loadStaticDataset() {
-  const response = await fetch(`${import.meta.env.BASE_URL}data/sisvan-pr.json.gz`, { cache: "no-store" });
-  if (!response.ok) throw new Error(`Base pública indisponível (HTTP ${response.status}).`);
-  if (typeof DecompressionStream === "undefined") throw new Error("Este navegador não oferece suporte à leitura da base compactada.");
-  const compressed = await response.arrayBuffer();
-  const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("gzip"));
-  const records = extractRecords(JSON.parse(await new Response(stream).text()));
-  if (!records.length) throw new Error("A base pública ainda não possui registros. Execute a atualização do SISVAN no GitHub Actions.");
+async function loadLocalDataset() {
+  const response = await fetch(`${import.meta.env.BASE_URL}dados/sisvan.json`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`JSON local indisponível (HTTP ${response.status}).`);
+  const records = extractRecords(await response.json());
+  if (!records.length) throw new Error("O JSON local não contém registros.");
   return records;
 }
 
@@ -102,7 +99,7 @@ function ExecutiveInsights({ records }) {
           <article className={`insight-card insight-${index + 1}`} key={label}>
             <span className="insight-label">{label}</span>
             <strong>{item?.[0] || "Aguardando dados"}</strong>
-            <span className="insight-detail">{item ? `${item[1].toLocaleString("pt-BR")} registros · ${detail}` : "Consulte a API para gerar esta leitura."}</span>
+            <span className="insight-detail">{item ? `${item[1].toLocaleString("pt-BR")} registros · ${detail}` : "Carregue os dados para gerar esta leitura."}</span>
           </article>
         ))}
       </div>
@@ -228,7 +225,7 @@ function DashboardCharts({ records }) {
     <section className="content-grid" aria-label="Gráficos de análise">
       <article className="panel chart-panel">
         <div className="panel-heading"><div><span className="eyebrow">DISTRIBUIÇÃO</span><h3>Registros por fase da vida</h3></div><span className="panel-tag">Dados carregados</span></div>
-        <div className="chart-wrap"><canvas ref={phaseRef} /><div className="empty-chart" style={{ display: phaseCounts.length ? "none" : "grid" }}>Aguardando dados da API</div></div>
+        <div className="chart-wrap"><canvas ref={phaseRef} /><div className="empty-chart" style={{ display: phaseCounts.length ? "none" : "grid" }}>Aguardando dados</div></div>
       </article>
       <article className="panel chart-panel">
         <div className="panel-heading"><div><span className="eyebrow">CLASSIFICAÇÃO</span><h3>Classificações nutricionais</h3></div></div>
@@ -277,14 +274,14 @@ export default function App() {
   const [status, setStatus] = useState({ text: "Não consultado", type: "neutral" });
   const [notice, setNotice] = useState({
     title: "Dados não carregados",
-    message: "Carregue a base pública oficial do SISVAN para consultar os registros do Paraná."
+    message: "Aguardando o carregamento da base pública do SISVAN."
   });
   const [toast, setToast] = useState("");
   const toastTimer = useRef(null);
   const dataCache = useRef(null);
   const requestLock = useRef(false);
-  const sourceRef = useRef("api");
-  const [dataSource, setDataSource] = useState("Consultando API DEMAS");
+  const sourceRef = useRef("local");
+  const [dataSource, setDataSource] = useState("Carregando base local");
 
   function showToast(message) {
     setToast(message);
@@ -310,7 +307,7 @@ export default function App() {
       setRecords([]);
       setOffset(0);
       setHasMore(true);
-      setNotice({ title: "Consultando dados", message: "Conectando à fonte oficial do SISVAN." });
+      setNotice({ title: "Consultando dados", message: "Carregando a base publicada do SISVAN." });
     }
     setStatus({ text: "Consultando dados", type: "neutral" });
 
@@ -319,36 +316,36 @@ export default function App() {
       let updatedRecords;
       let nextSource = sourceRef.current;
 
-      if (sourceRef.current === "api") {
+      if (sourceRef.current === "local") {
         try {
-          pageRecords = await fetchApiPage(pageOffset, requestLimit);
-          updatedRecords = [...existing, ...pageRecords];
-          nextSource = "api";
-          setDataSource("API DEMAS — Ministério da Saúde");
-        } catch (apiError) {
-          console.warn("API DEMAS indisponível; usando base pública de contingência:", apiError);
-          const allRecords = dataCache.current || await loadStaticDataset();
+          const allRecords = dataCache.current || await loadLocalDataset();
           dataCache.current = allRecords;
           pageRecords = allRecords.slice(pageOffset, pageOffset + requestLimit);
-          updatedRecords = allRecords.slice(0, pageOffset + pageRecords.length);
-          nextSource = "static";
-          setDataSource("Base pública SISVAN 2023");
-          if (reset) {
-            setNotice({
-              title: "Base pública de contingência",
-              message: "A API DEMAS não respondeu. O painel está usando a base pública oficial do SISVAN, filtrada para o Paraná."
-            });
+          updatedRecords = [...existing, ...pageRecords];
+          nextSource = "local";
+          setDataSource("JSON local — SISVAN 2023");
+        } catch (localError) {
+          try {
+            pageRecords = await fetchApiPage(pageOffset, requestLimit);
+            updatedRecords = [...existing, ...pageRecords];
+            nextSource = "api";
+            setDataSource("API DEMAS — plano de contingência");
+            if (reset) {
+              setNotice({
+                title: "Usando fonte alternativa",
+                message: "O JSON publicado não pôde ser carregado. A dashboard está consultando a API DEMAS."
+              });
+            }
+          } catch (apiError) {
+            throw new Error(`Falha nas duas fontes. JSON local: ${escapeError(localError)}. API DEMAS: ${escapeError(apiError)}.`);
           }
         }
       } else {
-        const allRecords = dataCache.current || await loadStaticDataset();
-        dataCache.current = allRecords;
-        pageRecords = allRecords.slice(pageOffset, pageOffset + requestLimit);
+        pageRecords = await fetchApiPage(pageOffset, requestLimit);
         updatedRecords = [...existing, ...pageRecords];
-        nextSource = "static";
-        setDataSource("Base pública SISVAN 2023");
+        nextSource = "api";
+        setDataSource("API DEMAS — plano de contingência");
       }
-
       sourceRef.current = nextSource;
       if (!pageRecords.length) {
         setHasMore(false);
@@ -369,7 +366,6 @@ export default function App() {
       });
       showToast(`${pageRecords.length.toLocaleString("pt-BR")} registros recebidos.`);
     } catch (error) {
-      console.error("Falha na consulta SISVAN:", error);
       const message = escapeError(error);
       setStatus({ text: "Falha na consulta", type: "error" });
       setNotice({
@@ -410,16 +406,16 @@ export default function App() {
         <main className="main-content">
           <header className="topbar">
             <div><span className="eyebrow">INTELIGÊNCIA EM SAÚDE PÚBLICA</span><h1>Monitoramento nutricional</h1></div>
-            <div className="top-actions"><span className={`status-badge ${status.type}`}>{status.text}</span><button className="button primary" onClick={() => { dataCache.current = null; sourceRef.current = "api"; fetchPage(true); }} disabled={loading}>↻ Atualizar dados</button></div>
+            <div className="top-actions"><span className={`status-badge ${status.type}`}>{status.text}</span><button className="button primary" onClick={() => { dataCache.current = null; sourceRef.current = "local"; fetchPage(true); }} disabled={loading}>↻ Atualizar dados</button></div>
           </header>
 
           <section className="intro" id="overview">
-            <div><h2>Estado nutricional da população</h2><p>Consulta da API oficial do SISVAN para o Paraná, com base pública de contingência quando necessário.</p></div>
+            <div><h2>Estado nutricional da população</h2><p>Dados públicos do SISVAN para o Paraná, priorizando a base publicada junto ao site.</p></div>
             <div className="filters">
               <label>UF<select value={uf} onChange={event => { const value = event.target.value; setUf(value); fetchPage(true, { uf: value }); }}><option value="PR">Paraná (PR)</option></select></label>
               <label>Registros por consulta<select value={limit} onChange={event => { const value = Number(event.target.value); setLimit(value); fetchPage(true, { limit: value }); }}><option value="20">20</option><option value="10">10</option><option value="5">5</option></select></label>
               <label>Município<input type="search" placeholder="Filtrar município" value={municipalityFilter} onChange={event => setMunicipalityFilter(event.target.value)} /></label>
-              <button className="button dark" onClick={() => fetchPage(true)} disabled={loading}>{loading ? "Carregando..." : "Consultar API"}</button>
+              <button className="button dark" onClick={() => fetchPage(true)} disabled={loading}>{loading ? "Carregando..." : "Consultar dados"}</button>
             </div>
           </section>
 
@@ -436,7 +432,7 @@ export default function App() {
           <DashboardCharts records={filteredRecords} />
 
           <section className="panel records-panel" id="records">
-            <div className="panel-heading records-heading"><div><span className="eyebrow">BASE EXPLORADA</span><h3>Registros retornados pela API</h3><p>{filteredRecords.length.toLocaleString("pt-BR")} registros exibidos de {records.length.toLocaleString("pt-BR")} carregados.</p></div><button className="button outline" onClick={() => fetchPage(false)} disabled={loading || !hasMore || records.length === 0}>Carregar mais</button></div>
+            <div className="panel-heading records-heading"><div><span className="eyebrow">BASE EXPLORADA</span><h3>Registros da base SISVAN</h3><p>{filteredRecords.length.toLocaleString("pt-BR")} registros exibidos de {records.length.toLocaleString("pt-BR")} carregados.</p></div><button className="button outline" onClick={() => fetchPage(false)} disabled={loading || !hasMore || records.length === 0}>Carregar mais</button></div>
             <div className="table-scroll"><table><thead><tr><th>Município</th><th>UF</th><th>Idade</th><th>Fase da vida</th><th>Sexo</th><th>Data</th><th>IMC</th><th>Classificação</th></tr></thead><RecordsTable records={filteredRecords} /></table></div>
           </section>
 
