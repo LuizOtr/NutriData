@@ -1,55 +1,53 @@
-# NutriData — SISVAN
+# NutriData — SISVAN Paraná
 
-Dashboard acadêmico para explorar acompanhamentos de estado nutricional do SISVAN no Paraná.
+Dashboard de análise exploratória dos registros públicos do Sistema de Vigilância Alimentar e Nutricional (SISVAN), com recorte para o Paraná.
 
-## Fontes de dados
+## Arquitetura
 
-1. **Fonte primária:** API DEMAS do Ministério da Saúde, endpoint `/sisvan/estado-nutricional`.
-2. **Contingência:** arquivo público anual do SISVAN (2023), baixado do Portal de Dados Abertos do SUS, filtrado para o Paraná e compactado em JSON.
+- **Frontend:** React + Vite, sem dependência de API em tempo de execução.
+- **Dados:** pipeline Python executado no GitHub Actions; a base oficial é agregada em um JSON compacto.
+- **Publicação:** GitHub Pages via GitHub Actions.
+- **Atualização:** semanal (segunda-feira) e sob demanda pelo workflow.
 
-A API é consultada no navegador com `uf=PR`, `limit` de até 20 registros e `offset` para paginação. Se a API falhar, o painel tenta carregar a base pública de contingência. A API e o arquivo anual são fontes diferentes e o painel identifica qual delas está sendo usada.
+A dashboard não consulta a API DEMAS no navegador. Isso elimina dependência de CORS, disponibilidade do endpoint e limites de paginação durante a visualização. A publicação utiliza um resumo agregado derivado da base oficial do SISVAN.
 
-**Documentação da API:** https://apidadosabertos.saude.gov.br/v1/#/SISVAN  
-**Portal oficial:** https://dadosabertos.saude.gov.br/dataset/sisvan-estado-nutricional
+## Fonte e metodologia
 
-## Atualização da base de contingência
-
-O workflow `.github/workflows/deploy.yml` publica o dashboard a cada alteração em `main`. O download e processamento do arquivo SISVAN são executados somente na atualização semanal ou quando o workflow é iniciado manualmente. A base validada fica em cache para as publicações normais não precisarem baixar novamente o ZIP.
+- Fonte: Portal de Dados Abertos do SUS / SISVAN.
+- Dataset: estado nutricional, ano de referência 2023.
+- Recorte: UF Paraná.
+- Unidade de contagem: registro de acompanhamento; não representa necessariamente pessoas únicas.
+- As dimensões são agregadas conforme os campos disponíveis no arquivo de origem. Valores ausentes permanecem como “Não informado”.
 
 ## Executar localmente
 
-Requisitos: Node.js 22 ou superior, Python 3.12.
+Requisitos: Node.js 22 ou superior.
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
-O dashboard tenta consultar a API DEMAS. Para gerar/atualizar a base de contingência:
+Para gerar ou atualizar o resumo localmente (Python 3.12+):
 
 ```bash
 python -m pip install pandas requests
 python scripts/update_sisvan.py
-```
-
-Para compilar:
-
-```bash
 npm run build
 ```
 
-## Estrutura
+## Publicação
 
-- `src/App.jsx`: dashboard, indicadores, gráficos, filtros, paginação e fallback.
-- `scripts/api.js`: cliente de diagnóstico da API DEMAS com validação dos parâmetros.
-- `scripts/update_sisvan.py`: geração da base pública compactada de contingência.
-- `server.cjs`: proxy opcional para desenvolvimento local.
-- `.github/workflows/deploy.yml`: publicação e atualização agendada.
-- `vite.config.mjs`: base URL do GitHub Pages.
+O workflow **NutriData — atualizar dados e publicar**:
+1. Em execução agendada ou manual, baixa o arquivo oficial.
+2. Valida e agrega os registros do Paraná em um JSON pequeno.
+3. Salva o resumo atualizado no repositório.
+4. Executa `npm ci` e `npm run build`.
+5. Confere os arquivos finais em `dist`.
+6. Envia um único artefato e publica no GitHub Pages.
 
-## Limitações metodológicas
+Em eventos de push, utiliza o dataset já versionado e não baixa novamente o arquivo bruto.
 
-- A base de contingência deste repositório corresponde ao ano de 2023; não deve ser apresentada como série histórica completa.
-- Pode haver mais de um acompanhamento por pessoa. Número de registros não equivale a número de indivíduos únicos.
-- Os relatórios públicos podem divergir da base individualizada porque consolidam o último acompanhamento e recebem atualizações periódicas.
-- Critérios de classificação nutricional variam por fase da vida; não compare categorias sem validar o dicionário de dados.
+## Limitações
+
+A série atualmente configurada é 2023. O painel não deve ser interpretado como retrato em tempo real nem como série histórica completa. Indicadores são descritivos e não substituem avaliação clínica.
