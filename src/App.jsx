@@ -248,7 +248,8 @@ export default function App() {
     message: "Consulte a API para obter os registros do SISVAN."
   });
   const [toast, setToast] = useState("");
-  const toastTimer = useRef(null);\n  const dataCache = useRef(null);
+  const toastTimer = useRef(null);
+  const dataCache = useRef(null);
 
   function showToast(message) {
     setToast(message);
