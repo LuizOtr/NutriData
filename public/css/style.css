@@ -351,6 +351,123 @@ input:checked + .slider:before { transform: translateX(16px); }
 .bar-track span { display: block; height: 100%; min-width: 3px; border-radius: 20px; background: #279477; }
 .bar-track span.orange { background: #e5a24a; }
 
+/* Gráfico de Barras com Médias por Fase da Vida */
+.phase-bars-container {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.phase-bars-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #f2f7f4;
+  border-radius: 8px;
+  border: 1px solid #dce8e1;
+  font-size: 11px;
+}
+.phase-metric-summary {
+  color: #1a493b;
+}
+.phase-metric-summary strong {
+  color: #123b32;
+}
+.phase-records-badge {
+  font-weight: 700;
+  color: #176b57;
+  background: #def0e7;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+.phase-bars-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.phase-bar-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.phase-bar-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+.phase-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.phase-name {
+  font-weight: 700;
+  color: #274037;
+  font-size: 12px;
+}
+.phase-avg-badge {
+  background: #eef6f2;
+  border: 1px solid #cce1d7;
+  color: #1a5644;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+}
+.phase-avg-badge strong {
+  color: #0f4435;
+}
+.phase-values-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+.phase-count {
+  color: #71847a;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.phase-share {
+  color: #173d33;
+  font-size: 13px;
+  font-weight: 800;
+  min-width: 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.phase-track {
+  height: 18px;
+  background: #edf3f0;
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+}
+.phase-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #176b57 0%, #2ba583 100%);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+  transition: width 0.4s ease;
+  min-width: 24px;
+}
+.phase-bar-inner-label {
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.95;
+}
+.phase-bars-footer {
+  padding-top: 4px;
+  color: #7a8c83;
+  font-size: 11px;
+}
+
 .donut-layout {
   display: flex;
   align-items: center;
